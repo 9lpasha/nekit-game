@@ -75,6 +75,9 @@ export const sfx = {
       case 'pop': tone(500, 0.08, 'square', 0.04, 1.5); break;
       case 'fire': noise(0.8, 0.04); break;
       case 'click': tone(1200, 0.03, 'square', 0.04); tone(900, 0.03, 'square', 0.04, 0, 0.06); break;
+      case 'gull': tone(1300, 0.12, 'triangle', 0.03, 0.7); tone(1500, 0.1, 'triangle', 0.025, 0.7, 0.14); break;
+      case 'tick': tone(1000, 0.03, 'square', 0.04); break;
+      case 'shoot': tone(2200, 0.4, 'sine', 0.03, 0.3); break;
       case 'movie': [523, 659, 523, 784].forEach((f, i) => tone(f, 0.1, 'triangle', 0.04, 0, i * 0.15)); break;
       case 'boss': [110, 98, 82].forEach((f, i) => tone(f, 0.5, 'sawtooth', 0.09, 0.8, i * 0.35)); vibrate(200); break;
       case 'bossdown': [392, 523, 659, 784, 1046].forEach((f, i) => tone(f, 0.15, 'square', 0.06, 0, i * 0.1)); vibrate(150); break;

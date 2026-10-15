@@ -1,179 +1,267 @@
 // Кат-сцены: вступление, появление боссов и финал на острове.
-// Рисуются целиком кодом в виде сбоку. Сцена — 100 «единиц» шириной по центру экрана,
-// небо и море тянутся на всю ширину. Время t приходит от хоста, поэтому у обоих игроков всё синхронно.
-import { TEAM_COLORS, CUT_TIME } from './const.js';
+// Картинка рисуется в пиксельный буфер (см. cut/gfx.js) и растягивается без сглаживания,
+// а титры, карточки боссов и кнопка пропуска — поверх, в полном разрешении.
+// Время t приходит от хоста, поэтому у обоих игроков всё синхронно.
+import { CUT_TIME } from './const.js';
+import {
+  PPU, PX, R, P, row, oval, glow, spans, setCam, setBuffer, setTint, clipAbove, sky, sea, reflection,
+  sunDisc, moon, stars, cloudLayer, rain, bolt, gull, bubbles, steam, flashAt,
+  clamp01, ease, easeOut, lerp, seg, hash, mix, pop,
+} from './cut/gfx.js';
+import { player, crew, boatBack, boatFront, deckY, wake } from './cut/people.js';
+import {
+  palm, bush, rock, islandFar, beachBits, fireflies, shootingStar, crab, tent, firewood, campfire,
+  projector, beam, screenRig, sheet, chair,
+} from './cut/props.js';
+import {
+  drawWorldSerpent, splashCrown, drips, breath, steamBlast, steamRing, drawColossus, raiderBoat, raiderWake,
+} from './cut/bosses.js';
+import { leader, movie, audience } from './cut/movie.js';
 
 const FONT = '"Press Start 2P", system-ui, monospace';
-const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
-const ease = (v) => { v = clamp01(v); return v * v * (3 - 2 * v); };
-const easeOut = (v) => 1 - (1 - clamp01(v)) ** 3;
-const lerp = (a, b, k) => a + (b - a) * k;
-const seg = (t, a, b) => clamp01((t - a) / (b - a)); // 0..1 на отрезке [a, b]
-const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 // Звуки по таймлайну сцены: [время, тип звука для sfx.event]
 const CUES = {
-  intro: [[0.2, 'cutstart'], [7.4, 'title']],
-  serpent: [[0.2, 'rumble'], [1.5, 'splash'], [3.0, 'roar'], [3.5, 'bosstitle']],
-  giant: [[0.2, 'rumble'], [1.05, 'bolt'], [1.5, 'rumble'], [2.6, 'roar'], [3.7, 'stomp'], [4.0, 'bosstitle']],
-  raider: [[0.1, 'engine'], [2.1, 'drift'], [3.0, 'bosstitle']],
-  outro: [[0.3, 'cutstart'], [2.9, 'bump'], [3.7, 'jump'], [6.3, 'pop'], [7.3, 'fire'], [9.3, 'pop'], [10.1, 'click'], [10.8, 'pop'], [11.6, 'movie'], [13, 'win']],
+  intro: [[0.2, 'cutstart'], [1.4, 'gull'], [3.6, 'gull'], [7.7, 'title']],
+  serpent: [[0.2, 'rumble'], [0.65, 'bolt'], [1.35, 'splash'], [1.5, 'rumble'], [3.0, 'roar'], [3.4, 'bolt'], [4.1, 'bosstitle']],
+  giant: [[0.1, 'rumble'], [1.0, 'bolt'], [1.15, 'stomp'], [2.2, 'rumble'], [3.3, 'roar'], [4.0, 'stomp'], [4.5, 'bosstitle']],
+  raider: [[0.1, 'engine'], [1.45, 'splash'], [2.1, 'drift'], [3.0, 'bosstitle']],
+  outro: [[0.3, 'cutstart'], [3.05, 'bump'], [3.4, 'jump'], [6.7, 'pop'], [7.4, 'fire'], [9.3, 'pop'], [9.7, 'pop'],
+    [10.3, 'click'], [10.5, 'tick'], [11.0, 'tick'], [11.5, 'tick'], [11.7, 'pop'], [12.05, 'movie'], [12.9, 'shoot'], [15, 'win'], [16.2, 'stomp']],
 };
 
 export function cutCues(id, prevT, t) {
   return (CUES[id] || []).filter(([at]) => at > prevT && at <= t).map(([, type]) => type);
 }
 
-// ---------- Примитивы ----------
-function R(c, x, y, w, h, color) { c.fillStyle = color; c.fillRect(x, y, w, h); }
-
-function sky(S, top, mid, bottom) {
-  const { c, W, X0, hor } = S;
-  const g = c.createLinearGradient(0, 0, 0, hor);
-  g.addColorStop(0, top); g.addColorStop(0.6, mid); g.addColorStop(1, bottom);
-  c.fillStyle = g;
-  c.fillRect(-X0, 0, W, hor + 1);
-}
-
-function stars(S, alpha) {
-  if (alpha <= 0) return;
-  const { c, W, X0, hor, t } = S;
-  for (let i = 0; i < 60; i++) {
-    const x = -X0 + hash(i) * W, y = hash(i + 99) * hor * 0.85;
-    c.globalAlpha = alpha * (0.5 + 0.5 * Math.sin(t * 3 + i));
-    R(c, x, y, 0.6, 0.6, '#ffffff');
-  }
-  c.globalAlpha = 1;
-}
-
-function sea(S, near, far, speed = 1) {
-  const { c, W, X0, hor, H, t } = S;
-  const g = c.createLinearGradient(0, hor, 0, H);
-  g.addColorStop(0, far); g.addColorStop(1, near);
-  c.fillStyle = g;
-  c.fillRect(-X0, hor, W, H - hor);
-  // Блики волн: дальше от горизонта — крупнее и быстрее (перспектива)
-  c.fillStyle = 'rgba(255,255,255,0.18)';
-  for (let row = 0; row < 14; row++) {
-    const k = row / 14;
-    const y = hor + 1 + k * k * (H - hor);
-    const len = 2 + k * 8;
-    for (let i = 0; i < 7; i++) {
-      const x = -X0 + ((hash(row * 7 + i) * W + t * speed * (4 + k * 18)) % (W + 20)) - 10;
-      c.fillRect(x, y, len, 0.4 + k * 0.8);
+// ---------- Сцены ----------
+const SCENES = {
+  // Рассвет. Камера начинает с далёкого острова, отъезжает — в кадр вплывает лодка с игроками.
+  intro(S) {
+    const { t, hor, H } = S;
+    const kc = ease(seg(t, 2.4, 5.8));
+    setCam(S, lerp(2.4, 1, kc), lerp(75, 50, kc), lerp(hor - 4, H * 0.5, kc));
+    sky(S, [[0, '#2f4fb0'], [0.4, '#8a6ad0'], [0.72, '#ff8aa0'], [1, '#ffc27a']]);
+    sunDisc(S, 68, hor - 1 - ease(seg(t, 0, 7)) * 7, 5.5, '#fff6d0', '#ffb35c', 0.4);
+    cloudLayer(S, 12, hor * 0.08, hor * 0.72, 16, 34, 1.4, ['#ffd6c8', '#fff3e6', '#c48aac'], 3);
+    for (let i = 0; i < 5; i++) {
+      gull(S, lerp(-20, 130, (t * 0.07 + hash(i + 70)) % 1), hor * (0.3 + hash(i + 80) * 0.35) + Math.sin(t * 1.5 + i) * 2, 1 + (i % 2), i);
     }
-  }
-}
+    sea(S, '#6a92d0', '#0f3a6e', '#cfe4ff', '#0a2a50', 0.6);
+    reflection(S, 68, '#ffe6a8', 9, 0.75);
+    islandFar(S, 76, hor + 0.8, 1);
+    const bx = lerp(-48, 40, easeOut(seg(t, 2.6, 6.8))) + seg(t, 6.8, 10) * 5;
+    const by = hor + 44 + Math.sin(t * 2) * 0.7;
+    wake(S, bx - 17, by, t < 7.2 ? 1 : 0.5);
+    boatBack(S, bx, by, 34);
+    crew(S, bx + 1, deckY(by, 34), (i) => (t > 5.6 && t < 8.2 ? (i === 0 ? 'point' : 'wave') : 'stand'), 11);
+    boatFront(S, bx, by, 34, '#24558f');
+  },
 
-function sun(S, x, y, r, color) {
-  const { c } = S;
-  c.fillStyle = color;
-  c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
-  c.globalAlpha = 0.25;
-  c.beginPath(); c.arc(x, y, r * 1.8, 0, Math.PI * 2); c.fill();
-  c.globalAlpha = 1;
-}
+  // Гроза, дождь. Из глубины поднимается Мировой змей, ревёт; молния выхватывает его силуэт.
+  serpent(S) {
+    const { c, t, hor, H } = S;
+    const roar = t > 3.0 && t < 4.2;
+    setCam(S, 1, 50, H * 0.5, (t > 1.3 && t < 2.4 ? 1.8 : 0) + (roar ? 2.4 : 0));
+    const fl = flashAt(t, [0.62, 3.38], 0.24);
+    sky(S, [[0, '#04070c'], [0.55, '#0e1a26'], [1, '#203646']]);
+    bolt(S, 22, -20, 30, hor - 6, 11, t > 0.62 && t < 0.86 ? 1 - (t - 0.62) / 0.24 : 0);
+    bolt(S, 82, -20, 74, hor - 2, 29, t > 3.38 && t < 3.62 ? 1 - (t - 3.38) / 0.24 : 0);
+    cloudLayer(S, 12, hor * 0.02, hor * 0.6, 22, 40, 4, ['#1c2a38', '#2e4256', '#0a1118'], 9);
+    sea(S, '#25475c', '#04121c', '#7aa0ba', '#020c14', 1.6);
+    const x = 56, water = hor + 26;
+    if (t < 2) {
+      const ga = c.globalAlpha;
+      c.globalAlpha = 0.5 * seg(t, 0, 1.3);
+      oval(c, x, water + 4, 26 * (0.6 + t * 0.2), 6, '#010a10');
+      c.globalAlpha = ga;
+    }
+    bubbles(S, x, water, t < 2.2 ? 1 : 0, 18);
+    const rise = easeOut(seg(t, 1.35, 3.0));
+    const jaw = roar ? 0.7 + 0.3 * Math.sin(t * 28) : t > 4.2 ? 0.25 : 0;
+    const head = drawWorldSerpent(S, x, water, rise, jaw, fl > 0.3 && t > 3.3);
+    if (roar && head) breath(S, head.mx, head.my);
+    splashCrown(S, x, water, t - 1.35);
+    drips(S, x, water, rise);
+    rain(S, 200, 0.5, 0.55);
+    const by = hor + 52 + Math.sin(t * 3.2) * 1.4;
+    boatBack(S, 18, by, 24);
+    crew(S, 18, deckY(by, 24), t > 1.6 ? 'alarm' : 'stand', 8, true);
+    boatFront(S, 18, by, 24, '#0e2a3a');
+    if (fl > 0) { const ga = c.globalAlpha; c.globalAlpha = fl * 0.55; row(c, -H, H * 3, '#dfe9ff'); c.globalAlpha = ga; }
+  },
 
-function palm(S, x, y, s, sway) {
-  const { c } = S;
-  for (let i = 0; i < 6; i++) R(c, x - 0.8 * s + i * 0.25 * s * sway, y - (i + 1) * 3 * s, 1.6 * s, 3.2 * s, i % 2 ? '#7a5230' : '#8a6038');
-  const tx = x + 1.5 * s * sway, ty = y - 19 * s;
-  c.fillStyle = '#3f8f35';
-  for (const [dx, dy, w] of [[-8, 1, 8], [0, -1, 8], [-4, -3, 8], [-6, 3, 4], [4, 2, 5]]) c.fillRect(tx + dx * s, ty + dy * s, w * s, 2 * s);
-  R(c, tx - 1 * s, ty - 1 * s, 2 * s, 2 * s, '#2f6f28');
-}
+  // Удар молнии, ослепительная вспышка, взрыв пара — из воды поднимается Колосс.
+  giant(S) {
+    const { c, t, hor, H } = S;
+    setCam(S, 1, 50, H * 0.5, (t < 1 ? 0.8 : 0) + (t > 1.05 && t < 2 ? 2.6 : 0) + (t > 4.0 && t < 4.7 ? 2.6 : 0));
+    sky(S, [[0, '#0e0709'], [0.45, '#33141a'], [0.8, '#8a2a1e'], [1, '#d8642c']]);
+    sunDisc(S, 26, hor - 5, 10, '#ffc080', '#e0482a', 0);
+    cloudLayer(S, 10, hor * 0.06, hor * 0.7, 22, 42, 1.5, ['#3a1c1c', '#5a2c26', '#1a0c0c'], 17);
+    if (t < 2.6) for (let i = 0; i < 7; i++) {
+      const k = (t * 0.6 + hash(i + 40)) % 1;
+      gull(S, lerp(90, -30, k), hor * (0.3 + hash(i + 50) * 0.4) - k * 8, 1, i);
+    }
+    sea(S, '#6a3a40', '#12080e', '#f0a080', '#0a0408', 0.7);
+    reflection(S, 26, '#ff9a5a', 10, 0.55);
+    const gx = 56, water = hor + 18;
+    const appear = easeOut(seg(t, 1.5, 3.8));
+    const k = Math.min(1.12, Math.max(0.72, (water + 24 - (H * 0.09 + 6)) / 98));
+    steamBlast(S, gx, water, t - 1.15, '#f0b090');
+    c.save();
+    clipAbove(c, water);
+    drawColossus(S, gx, water + 24 + (1 - appear) * 100 * k, k);
+    c.restore();
+    steam(S, gx - 18 * k, water - 58 * k * appear, 6, appear * 0.8, 30);
+    steam(S, gx + 18 * k, water - 58 * k * appear, 6, appear * 0.8, 30);
+    steam(S, gx, water - 92 * k * appear, 8, appear * 0.6, 26);
+    steamRing(S, gx, water - 40 * k, t - 4.0);
+    if (t > 4.0) {
+      const r = (t - 4.0) * 34;
+      const ga = c.globalAlpha;
+      c.globalAlpha = clamp01(1 - (t - 4.0) / 1.5);
+      for (let i = 0; i < 60; i++) { const a = (i / 60) * Math.PI * 2; P(c, gx + Math.cos(a) * r, water + 3 + Math.sin(a) * r * 0.25, '#e8f4ff'); }
+      c.globalAlpha = ga;
+    }
+    bolt(S, gx + 8, -20, gx - 2, water, 41, t > 1.0 && t < 1.3 ? 1 - (t - 1.0) / 0.3 : 0);
+    const push = seg(t, 4.1, 4.8) * 4;
+    const by = hor + 52 + Math.sin(t * 2.5) * 1;
+    boatBack(S, 14 - push, by, 24);
+    crew(S, 14 - push, deckY(by, 24), t > 1.4 ? 'alarm' : 'stand', 8, true);
+    boatFront(S, 14 - push, by, 24, '#2a1018');
+    const f = t > 1.12 && t < 1.8 ? 1 - (t - 1.12) / 0.68 : 0;
+    if (f > 0) { const ga = c.globalAlpha; c.globalAlpha = f; row(c, -H, H * 3, '#fff2c0'); c.globalAlpha = ga; }
+  },
 
-function island(S, x, y, s) {
-  const { c } = S;
-  R(c, x - 14 * s, y - 2 * s, 28 * s, 2.5 * s, '#e6c879');
-  R(c, x - 10 * s, y - 4 * s, 20 * s, 2.5 * s, '#d9b866');
-  R(c, x - 6 * s, y - 6 * s, 12 * s, 2.5 * s, '#58b04a');
-  palm(S, x + 2 * s, y - 4 * s, s * 0.7, 1 + Math.sin(S.t * 1.5) * 0.3);
-}
+  // Закат. Катер рейдеров влетает с полосами скорости, подпрыгивает на волне и тормозит заносом.
+  raider(S) {
+    const { t, hor, H } = S;
+    setCam(S, 1, 50, H * 0.5, t > 2.1 && t < 2.6 ? 1.2 : 0);
+    sky(S, [[0, '#24103c'], [0.45, '#7e2852'], [0.8, '#e0583a'], [1, '#ffb04a']]);
+    sunDisc(S, 26, hor - 2, 8.5, '#ffe6a8', '#ff8a3a', 0.35);
+    cloudLayer(S, 10, hor * 0.12, hor * 0.7, 18, 34, 2, ['#c0506a', '#f08a78', '#6a2448'], 23);
+    sea(S, '#b0526a', '#250c2c', '#ffc090', '#160616', 2.2);
+    reflection(S, 26, '#ffcf90', 10, 0.75);
+    const arrive = easeOut(seg(t, 0, 2.2));
+    const x = lerp(150, 62, arrive);
+    const hop = t > 0.8 && t < 1.5 ? Math.sin(seg(t, 0.8, 1.5) * Math.PI) * 4 : 0;
+    const wl = hor + 30;
+    raiderWake(S, x, wl, 1 - seg(t, 1.8, 2.4), seg(t, 2.1, 3.0));
+    raiderBoat(S, x, wl - hop, t > 2.9);
+    const by = hor + 52 + Math.sin(t * 3) * 1.2;
+    boatBack(S, 16, by, 28);
+    crew(S, 16, deckY(by, 28), t > 2.3 ? 'alarm' : 'stand', 10);
+    boatFront(S, 16, by, 28, '#3a1830');
+  },
 
-// Игрок сбоку. (x, y) — ноги. pose: stand | walk | sit | jump | alarm
-function player(S, x, y, s, color, skin, pose, phase = 0) {
-  const { c, t } = S;
-  const step = pose === 'walk' ? Math.sin(t * 12 + phase) : 0;
-  if (pose === 'sit') {
-    R(c, x - 2 * s, y - 5 * s, 6 * s, 2 * s, '#3a3a4a'); // ноги вперёд
-    R(c, x + 3 * s, y - 5 * s, 2 * s, 5 * s, '#3a3a4a');
-    y += 2 * s; // сидя чуть ниже
-  } else {
-    R(c, x - 2 * s, y - 5 * s + step * s, 1.8 * s, 5 * s - step * s, '#3a3a4a');
-    R(c, x + 0.4 * s, y - 5 * s - step * s, 1.8 * s, 5 * s + step * s, '#3a3a4a');
-  }
-  const by = y - 11 * s;
-  R(c, x - 2.6 * s, by, 5.4 * s, 6.2 * s, color);
-  R(c, x - 2.6 * s, by + 4.6 * s, 5.4 * s, 1.6 * s, 'rgba(0,0,0,0.2)');
-  R(c, x - 2.2 * s, by - 4.6 * s, 4.6 * s, 4.6 * s, '#e8b98a');
-  R(c, x - 2.2 * s, by - 4.6 * s, 4.6 * s, 1.4 * s, '#4a2f1b');
-  R(c, x + 1 * s, by - 2.6 * s, 0.9 * s, 0.9 * s, '#1b1b2a');
-  // Рука с ракеткой
-  const up = pose === 'alarm' || pose === 'jump' ? -3 : 0;
-  R(c, x + 2.4 * s, by + 1 * s + up * s, 1.4 * s, 3.4 * s, color);
-  R(c, x + 3.2 * s, by + (0.8 + up) * s, 0.6 * s, 2 * s, '#6b4423');
-  c.fillStyle = '#111';
-  c.beginPath(); c.arc(x + 3.5 * s, by + (-0.8 + up) * s, 1.9 * s, 0, Math.PI * 2); c.fill();
-  c.fillStyle = skin === 'rainbow' ? `hsl(${(t * 120) % 360},90%,55%)` : skin || '#d6262f';
-  c.beginPath(); c.arc(x + 3.5 * s, by + (-0.8 + up) * s, 1.5 * s, 0, Math.PI * 2); c.fill();
-  if (pose === 'alarm') bubbleMark(S, x, by - 8 * s, s);
-}
+  // Финал: причаливаем, лагерь, костёр, проектор, стулья, кино под звёздами — и наезд на экран.
+  outro(S) {
+    const { c, t, hor, H } = S;
+    const night = ease(seg(t, 4.5, 11));
+    const pan = lerp(0, 44, ease(seg(t, 3.8, 6.6)));
+    const zk = ease(seg(t, 13.4, 14.8));
+    const gy = hor + 26;
+    const scr = { x0: 112, x1: 140, top: gy - 30 };
+    setCam(S, lerp(1, 3, zk), lerp(50 + pan, (scr.x0 + scr.x1) / 2, zk), lerp(H * 0.5, scr.top + 8.5, zk), t > 3.0 && t < 3.25 ? 1.2 : 0);
+    const nt = (col) => mix(col, '#121838', night * 0.62);
 
-function bubbleMark(S, x, y, s) {
-  const { c } = S;
-  R(c, x - 1.5 * s, y - 3 * s, 3 * s, 4.5 * s, '#ffffff');
-  R(c, x - 0.5 * s, y - 2.4 * s, 1 * s, 2.2 * s, '#d6262f');
-  R(c, x - 0.5 * s, y + 0.2 * s, 1 * s, 0.8 * s, '#d6262f');
-}
+    sky(S, [[0, mix('#3a4aa0', '#05081a', night)], [0.5, mix('#e8708a', '#121a40', night)], [0.85, mix('#ffa060', '#26305e', night)], [1, mix('#ffd08a', '#323c70', night)]]);
+    stars(S, seg(t, 7.5, 11), pan * 0.9);
+    if (t > 12.6 && t < 13.3) shootingStar(S, seg(t, 12.6, 13.3), 112 + pan * 0.9, 16);
+    sunDisc(S, 22 + pan * 0.85, hor - 7 + night * 16, 6.5, mix('#fff0b0', '#ff7040', night), mix('#ffb060', '#c03020', night), 0.2 * (1 - night));
+    if (night > 0.45) { const ga = c.globalAlpha; c.globalAlpha = (night - 0.45) / 0.55; moon(S, 80 + pan * 0.9, H * 0.2, 3.6); c.globalAlpha = ga; }
+    cloudLayer(S, 12, hor * 0.12, hor * 0.65, 18, 34, 0.8, [mix('#ffb0a0', '#2a3260', night), mix('#ffe0c8', '#3a4478', night), mix('#b06a8a', '#141a3a', night)], 31, pan * 0.7);
+    sea(S, mix('#5a86c0', '#0c1a3a', night), mix('#103a6a', '#040a1c', night), mix('#cfe4ff', '#5a6aa0', night), mix('#0a2a50', '#02060f', night), 0.5);
+    if (night < 0.7) reflection(S, 22 + pan * 0.85, '#ffd890', 9, 0.6 * (1 - night));
+    if (night > 0.5) reflection(S, 80 + pan * 0.9, '#e8ecff', 4, 0.5 * night);
 
-function boatSide(S, x, y, s) {
-  const { c } = S;
-  c.fillStyle = 'rgba(0,0,0,0.25)';
-  c.fillRect(x - 15 * s, y + 1 * s, 30 * s, 2 * s);
-  c.fillStyle = '#8a5a2b';
-  c.beginPath();
-  c.moveTo(x - 17 * s, y - 6 * s); c.lineTo(x + 18 * s, y - 7 * s); c.lineTo(x + 13 * s, y + 2 * s); c.lineTo(x - 14 * s, y + 2 * s);
-  c.closePath(); c.fill();
-  R(c, x - 17 * s, y - 7 * s, 35 * s, 1.6 * s, '#5a3a1c');
-  c.fillStyle = 'rgba(0,0,0,0.15)';
-  for (let i = 0; i < 3; i++) c.fillRect(x - 15 * s + i, y - 3.5 * s + i * 2.2 * s, 28 * s - i * 2, 0.4 * s);
-}
+    // Остров: холмы, пляж, мокрый песок, прибой
+    setTint(nt);
+    for (let xx = 54; xx < 270; xx += 1) {
+      const hh = 7 + Math.sin(xx * 0.08) * 3 + Math.sin(xx * 0.21) * 1.5;
+      R(c, xx, hor + 10 - hh, 1, hh, '#2e5a3a');
+      R(c, xx, hor + 10 - hh, 1, PX, '#4a7a4a');
+    }
+    const edge = (yy) => lerp(58, 44, clamp01((yy - (hor + 9)) / 44));
+    const lap = Math.sin(t * 1.6) * 1.2;
+    spans(c, hor + 9, H + 80, (yy) => [edge(yy) + lap - 0.8, edge(yy) + lap + 2.6], '#b8994e');
+    spans(c, hor + 9, H + 80, (yy) => [edge(yy) + lap + 2.6, 330], '#e6c879');
+    for (let i = 0; i < 110; i++) {
+      const sx = 60 + hash(i) * 200, sy = hor + 10 + hash(i + 33) * (H - hor);
+      if (sx > edge(sy) + 3) P(c, sx, sy, hash(i + 7) > 0.5 ? '#cdb06a' : '#f4dc9a');
+    }
+    setTint(null);
+    const ga0 = c.globalAlpha;
+    c.globalAlpha = 0.85 * (1 - night * 0.5);
+    for (let yy = hor + 9; yy < H + 10; yy += 0.5) if (hash(Math.floor(yy * 2) + Math.floor(t * 2)) > 0.25) P(c, edge(yy) + lap - 0.8, yy, '#f4fbff');
+    c.globalAlpha = ga0;
 
-// Оба игрока (или один, если играет соло)
-function crew(S, x, y, s, pose, gap = 9) {
-  const { o } = S;
-  if (o.duo) {
-    player(S, x - gap * s / 2, y, s, TEAM_COLORS.h, o.skins.h, pose, 0);
-    player(S, x + gap * s / 2, y, s, TEAM_COLORS.g, o.skins.g, pose, 1.7);
-  } else player(S, x, y, s, TEAM_COLORS.h, o.skins.h, pose, 0);
-}
+    // Задний план и лагерь
+    setTint(nt);
+    palm(S, 56, gy - 7, 1, 1 + Math.sin(t * 1.1) * 0.25);
+    palm(S, 147, gy - 3, 1.15, 1 + Math.sin(t * 1.3 + 1) * 0.25);
+    bush(S, 152, gy - 7, 1.3);
+    bush(S, 166, gy - 5, 1.2);
+    bush(S, 61, gy - 5, 1);
+    const unroll = easeOut(seg(t, 9.6, 10.3));
+    const sr = screenRig(S, scr.x0, scr.x1, scr.top, gy, unroll);
+    rock(S, 50, gy + 10, 1.2);
+    rock(S, 142, gy + 11, 0.9);
+    tent(S, 64, gy, pop(seg(t, 6.6, 7.2)));
+    firewood(S, 51, gy + 1);
+    beachBits(S, gy);
+    campfire(S, 74, gy + 1, seg(t, 7.3, 7.8));
+    projector(S, 84, gy, easeOut(seg(t, 9.2, 9.6)), t > 10.3);
+    const chairs = S.o.duo ? [95, 105] : [100];
+    const ch = pop(seg(t, 11.7, 12.1));
+    chairs.forEach((x) => chair(S, x, gy - 4.5, ch));
+    if (t > 8.2 && t < 11.6) crab(S, lerp(124, 90, seg(t, 8.2, 11.6)), gy + 7);
 
-// ---------- Подписи, карточка босса, кинорамка ----------
-function caption(cam, text, alpha, size = 13, y) {
-  const c = cam.ctx;
-  c.globalAlpha = alpha;
-  c.font = `${size}px ${FONT}`;
-  c.textAlign = 'center';
-  c.lineJoin = 'round';
-  c.lineWidth = Math.max(3, size * 0.3);
-  c.strokeStyle = 'rgba(0,0,0,0.9)';
-  let lines = wrap(c, text, cam.w - 32);
-  while (lines.length > 2 && size > 8) { // длинная фраза — мельче, чтобы влезла в 2 строки
-    size -= 1;
-    c.font = `${size}px ${FONT}`;
-    c.lineWidth = Math.max(3, size * 0.3);
-    lines = wrap(c, text, cam.w - 32);
-  }
-  lines.forEach((line, i) => {
-    const ly = (y ?? cam.h * 0.93) + (i - (lines.length - 1) / 2) * size * 1.6;
-    c.strokeText(line, cam.w / 2, ly);
-    c.fillStyle = '#ffffff';
-    c.fillText(line, cam.w / 2, ly);
-  });
-  c.globalAlpha = 1;
-}
+    // Лодка и герои: прыгают на берег, идут к лагерю, садятся смотреть кино
+    const bx = lerp(-42, 40, easeOut(seg(t, 0, 3.1)));
+    const bump = t > 3.0 && t < 3.3 ? Math.sin((t - 3.0) * 40) * 0.5 : 0;
+    const by = gy + 3 + Math.sin(t * 2) * 0.5 * (1 - seg(t, 2.6, 3.1)) + bump;
+    const keys = S.o.duo ? ['h', 'g'] : ['h'];
+    const people = keys.map((key, i) => {
+      const onBoat = { x: bx - 3 + i * 9, y: deckY(by, 30) };
+      const shore = { x: 64 + i * 6, y: gy };
+      const camp = { x: 93 + i * 12, y: gy };
+      const seat = { x: chairs[i], y: gy - 4.5 };
+      let x, y, pose = 'stand', item = 'racket';
+      if (t < 3.3) { x = onBoat.x; y = onBoat.y; pose = t > 0.4 && t < 2.9 ? 'cheer' : 'stand'; }
+      else if (t < 4.4) {
+        const kk = seg(t, 3.3 + i * 0.15, 4.2 + i * 0.1);
+        x = lerp(onBoat.x, shore.x, kk); y = lerp(onBoat.y, shore.y, kk) - Math.sin(kk * Math.PI) * 9;
+        pose = kk > 0 && kk < 1 ? 'jump' : 'stand';
+      } else if (t < 6.6) {
+        const kk = seg(t, 4.4, 6.6);
+        x = lerp(shore.x, camp.x, kk); y = gy; pose = kk < 1 ? 'walk' : 'stand';
+      } else if (t < 11.6) { x = camp.x; y = gy; pose = t > 7.6 && t < 8.4 ? 'cheer' : 'stand'; }
+      else if (t < 12.4) { x = lerp(camp.x, seat.x, seg(t, 11.6, 12.4)); y = gy; pose = 'walk'; }
+      else { x = seat.x; y = seat.y; pose = 'sit'; item = i === 0 ? 'popcorn' : 'cup'; }
+      return () => player(S, x, y, key, pose, i * 1.7, item);
+    });
+    const water = mix('#24558f', '#0a1630', night);
+    boatBack(S, bx, by, 30);
+    if (t < 3.3) { people.forEach((d) => d()); boatFront(S, bx, by, 30, water); }
+    else { boatFront(S, bx, by, 30, water); people.forEach((d) => d()); }
+    setTint(null);
 
+    // Экран светится сам: простыня → отсчёт плёнки → кино
+    if (sr) {
+      if (t < 10.4) sheet(S, sr, night);
+      else if (t < 12.0) leader(S, sr.x, sr.y, sr.w, sr.h, t - 10.4);
+      else movie(S, sr.x, sr.y, sr.w, sr.h, t - 12.0);
+    }
+    beam(S, 90.5, gy - 9.3, scr.x0, scr.top, scr.top + 17 * unroll, t > 10.3 ? 1 : 0);
+    const fire = seg(t, 7.3, 7.8) * night;
+    if (fire > 0) glow(c, 74, gy - 2, 26, '#ff8a2a', 0.32 * fire * (0.9 + 0.1 * Math.sin(t * 11)));
+    fireflies(S, 118, 160, gy - 18, gy - 2, seg(t, 9, 11));
+    audience(S, (zk - 0.3) / 0.7);
+  },
+};
+
+// ---------- Наложения поверх картинки ----------
 function wrap(c, text, maxW) {
   const words = text.split(' ');
   const out = [];
@@ -186,40 +274,116 @@ function wrap(c, text, maxW) {
   return out;
 }
 
-// Подпись появляется и исчезает плавно
+function caption(cam, text, alpha, size = 13, y) {
+  const c = cam.ctx;
+  c.globalAlpha = alpha;
+  c.font = `${size}px ${FONT}`;
+  c.textAlign = 'center';
+  c.lineJoin = 'round';
+  c.lineWidth = Math.max(3, size * 0.3);
+  let lines = wrap(c, text, cam.w - 32);
+  while (lines.length > 2 && size > 8) { // длинная фраза — мельче, чтобы влезла в 2 строки
+    size -= 1;
+    c.font = `${size}px ${FONT}`;
+    c.lineWidth = Math.max(3, size * 0.3);
+    lines = wrap(c, text, cam.w - 32);
+  }
+  c.strokeStyle = 'rgba(0,0,0,0.9)';
+  lines.forEach((ln, i) => {
+    const ly = (y ?? cam.h * 0.93) + (i - (lines.length - 1) / 2) * size * 1.6;
+    c.strokeText(ln, cam.w / 2, ly);
+    c.fillStyle = '#ffffff';
+    c.fillText(ln, cam.w / 2, ly);
+  });
+  c.globalAlpha = 1;
+}
+
 function timedCaption(cam, t, a, b, text, size) {
   if (t < a || t > b) return;
   caption(cam, text, Math.min(1, (t - a) * 3, (b - t) * 3), size);
 }
 
-function bossCard(cam, p, name, sub) {
-  if (p <= 0) return;
+// Название игры: буквы выпрыгивают по одной и покачиваются
+function titlePop(cam, text, tt, size, y) {
   const c = cam.ctx;
-  const k = easeOut(p);
-  const y = cam.h * 0.62;
-  const x = lerp(cam.w, 0, k);
-  c.save();
-  c.translate(x, 0);
-  c.fillStyle = 'rgba(160,20,30,0.92)';
-  c.beginPath();
-  c.moveTo(0, y - 34); c.lineTo(cam.w, y - 48); c.lineTo(cam.w, y + 26); c.lineTo(0, y + 40); c.closePath(); c.fill();
-  c.fillStyle = '#ffe14d';
-  c.fillRect(0, y + 34, cam.w, 4);
-  c.textAlign = 'center';
-  c.font = `10px ${FONT}`;
-  c.fillStyle = '#ffd0d0';
-  c.fillText('БОСС', cam.w / 2, y - 18);
-  const size = Math.min(22, cam.w / (name.length * 1.05));
   c.font = `${size}px ${FONT}`;
-  c.lineWidth = 4;
-  c.strokeStyle = '#000';
-  c.strokeText(name, cam.w / 2, y + 6);
-  c.fillStyle = '#ffffff';
-  c.fillText(name, cam.w / 2, y + 6);
-  c.font = `9px ${FONT}`;
-  c.fillStyle = '#ffe14d';
-  c.fillText(sub, cam.w / 2, y + 24);
+  c.textAlign = 'left';
+  c.lineJoin = 'round';
+  let x = cam.w / 2 - c.measureText(text).width / 2;
+  [...text].forEach((ch, i) => {
+    const w = c.measureText(ch).width;
+    const p = clamp01((tt - i * 0.06) / 0.35);
+    if (p > 0 && ch !== ' ') {
+      const sc = p < 1 ? 1 + Math.sin(p * Math.PI) * 0.6 : 1;
+      const dy = (1 - easeOut(p)) * -30 + Math.sin(tt * 3 + i * 0.5) * 2;
+      c.save();
+      c.translate(x + w / 2, y + dy);
+      c.scale(sc, sc);
+      c.lineWidth = Math.max(4, size * 0.35);
+      c.strokeStyle = '#b3401a';
+      c.strokeText(ch, -w / 2 + 3, 3);
+      c.strokeStyle = '#1a0a00';
+      c.strokeText(ch, -w / 2, 0);
+      c.fillStyle = '#ffd84a';
+      c.fillText(ch, -w / 2, 0);
+      c.restore();
+    }
+    x += w;
+  });
+}
+
+// Карточка босса: лента с бегущими полосами и бликом, имя со свечением
+function bossCard(cam, p, name, sub, t) {
+  if (p <= 0) return;
+  const c = cam.ctx, W = cam.w;
+  const y = cam.h * 0.64;
+  const band = (dy) => {
+    c.beginPath();
+    c.moveTo(0, y - 38 + dy); c.lineTo(W, y - 52 + dy); c.lineTo(W, y + 28 + dy); c.lineTo(0, y + 42 + dy);
+    c.closePath();
+  };
+  c.save();
+  c.translate(lerp(W * 1.15, 0, easeOut(p)), 0);
+  c.fillStyle = 'rgba(0,0,0,0.55)'; band(6); c.fill();
+  c.fillStyle = '#9a1220'; band(0); c.fill();
+  c.save();
+  band(0); c.clip();
+  const off = (t * 30) % 24;
+  c.fillStyle = 'rgba(0,0,0,0.2)';
+  for (let i = -4; i < W / 24 + 6; i++) {
+    const bx = i * 24 + off;
+    c.beginPath(); c.moveTo(bx, y - 60); c.lineTo(bx + 12, y - 60); c.lineTo(bx - 28, y + 50); c.lineTo(bx - 40, y + 50); c.fill();
+  }
+  const sx = ((t * 0.8) % 1.6) * W * 1.4 - W * 0.2;
+  c.fillStyle = 'rgba(255,255,255,0.18)';
+  c.beginPath(); c.moveTo(sx, y - 60); c.lineTo(sx + 30, y - 60); c.lineTo(sx - 10, y + 50); c.lineTo(sx - 40, y + 50); c.fill();
   c.restore();
+  c.strokeStyle = '#ffd84a'; c.lineWidth = 3; band(0); c.stroke();
+  c.textAlign = 'center';
+  c.fillStyle = '#1a0408';
+  c.fillRect(W / 2 - 44, y - 36, 88, 16);
+  c.font = `9px ${FONT}`;
+  c.fillStyle = '#ffd0d0';
+  c.fillText('☠ БОСС ☠', W / 2, y - 24);
+  const size = Math.min(22, Math.floor((W - 30) / (name.length * 1.05)));
+  c.font = `${size}px ${FONT}`;
+  c.shadowColor = '#ff3040'; c.shadowBlur = 14;
+  c.lineWidth = 5; c.strokeStyle = '#000'; c.strokeText(name, W / 2, y + 8);
+  c.shadowBlur = 0;
+  c.fillStyle = '#ffffff'; c.fillText(name, W / 2, y + 8);
+  c.font = `9px ${FONT}`;
+  c.fillStyle = '#ffd84a';
+  c.fillText(sub, W / 2, y + 26);
+  c.restore();
+}
+
+function vignette(cam, a) {
+  const c = cam.ctx;
+  const g = c.createRadialGradient(cam.w / 2, cam.h / 2, Math.min(cam.w, cam.h) * 0.3, cam.w / 2, cam.h / 2, Math.hypot(cam.w, cam.h) * 0.6);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, `rgba(0,0,0,${a})`);
+  c.fillStyle = g;
+  c.fillRect(0, 0, cam.w, cam.h);
 }
 
 function letterbox(cam) {
@@ -228,450 +392,6 @@ function letterbox(cam) {
   c.fillStyle = '#000';
   c.fillRect(0, 0, cam.w, bar);
   c.fillRect(0, cam.h - bar * 1.3, cam.w, bar * 1.3);
-}
-
-// ---------- Сцены ----------
-const SCENES = {
-  // Рассвет. Камера начинает с далёкого острова, отъезжает — в кадр вплывает лодка с игроками.
-  intro(S) {
-    const { c, t, hor, H } = S;
-    const zoom = lerp(2.2, 1, ease(seg(t, 2.2, 5)));
-    const fx = lerp(78, 50, ease(seg(t, 2.2, 5)));
-    const fy = lerp(hor - 2, H * 0.5, ease(seg(t, 2.2, 5)));
-    c.translate(50, H * 0.5); c.scale(zoom, zoom); c.translate(-fx, -fy);
-    sky(S, '#4a6fd0', '#ff8fb0', '#ffc06b');
-    sun(S, 70, hor - 3, 5, '#fff1b0');
-    sea(S, '#0d3b66', '#3f78b5', 0.6);
-    island(S, 78, hor + 0.5, 0.45);
-    const bx = lerp(-40, 38, easeOut(seg(t, 2.6, 6.2)));
-    const by = hor + 36 + Math.sin(t * 2) * 0.8;
-    boatSide(S, bx, by, 1.5);
-    crew(S, bx, by - 9, 1.1, 'stand', 12);
-  },
-
-  // Гроза. Из глубины поднимается Мировой змей — огромный, рогатый, ревёт.
-  serpent(S) {
-    const { c, t, hor } = S;
-    const roar = t > 3 && t < 3.9;
-    if (roar || (t > 1.4 && t < 2.2)) c.translate((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 2.5);
-    const flash = t > 0.7 && t < 0.85;
-    sky(S, flash ? '#9ab0c0' : '#0c141e', '#1c2f3d', '#33505e');
-    sea(S, '#061a26', '#18394b', 1.2);
-    const x = 66, water = hor + 22;
-    // Бурление перед появлением
-    for (let i = 0; i < 14; i++) {
-      const f = (t * 1.5 + hash(i)) % 1;
-      c.globalAlpha = (1 - f) * clamp01(t) * (1 - seg(t, 2, 2.6));
-      R(c, x - 14 + hash(i + 5) * 28, water - f * 7, 1.4, 1.4, '#cfeaff');
-    }
-    c.globalAlpha = 1;
-    const rise = easeOut(seg(t, 1.4, 3));
-    const jaw = roar ? 0.65 + 0.35 * Math.sin(t * 30) : t > 3.9 ? 0.25 : 0;
-    drawSerpentSide(S, x, water, rise, jaw);
-    // Водяная стена, когда он вырывается из моря
-    if (t > 1.4 && t < 2.6) {
-      for (let i = 0; i < 26; i++) {
-        const a = hash(i) * Math.PI, r = (t - 1.4) * 26 * (0.5 + hash(i + 3));
-        R(c, x + Math.cos(a) * r, water - Math.sin(a) * r * 0.9, 1.6, 1.6, '#e6f6ff');
-      }
-    }
-    // Наша лодка на переднем плане — крошечная рядом с ним
-    const by = hor + 40 + Math.sin(t * 3) * 1.2;
-    boatSide(S, 16, by, 0.9);
-    crew(S, 16, by - 6, 0.65, t > 1.7 ? 'alarm' : 'stand', 12);
-  },
-
-  // Удар молнии в море, вспышка — и из пара поднимается Колосс: без кожи, одни мышцы и зубы.
-  giant(S) {
-    const { c, t, hor, H } = S;
-    const shake = (t > 1.2 && t < 2) || (t > 3.6 && t < 4.3);
-    if (shake) c.translate((Math.random() - 0.5) * 2.2, (Math.random() - 0.5) * 2.2);
-    sky(S, '#1a1418', '#3a2a2a', '#5c4038');
-    sea(S, '#0b1e2c', '#284658', 0.8);
-    const gx = 60, water = hor + 16;
-    const appear = easeOut(seg(t, 1.4, 3.3));
-    // Колосс поднимается из воды: рисуем только то, что выше линии воды
-    c.save();
-    c.beginPath(); c.rect(-200, -10, 500, water + 10); c.clip();
-    c.translate(gx, water + 20 + (1 - appear) * 80); // из воды — только по грудь, зато огромный
-    c.scale(0.9, 0.9);
-    drawColossus(S, 0, 0, t);
-    c.restore();
-    // Пар клубится всё время, а в 3.7 — мощный выброс
-    const burst = t > 3.7 ? clamp01(1 - (t - 3.7) / 1.4) : 0;
-    steam(S, gx, water - 30 * appear, 22 + burst * 30, appear * 0.8 + burst);
-    if (t > 3.7) {
-      const r = (t - 3.7) * 34;
-      c.strokeStyle = `rgba(230,245,255,${clamp01(1 - (t - 3.7) / 1.5)})`;
-      c.lineWidth = 1.2;
-      c.beginPath(); c.ellipse(gx, water + 3, r, r * 0.25, 0, 0, Math.PI * 2); c.stroke();
-    }
-    // Молния и вспышка превращения
-    if (t > 1.05 && t < 1.35) {
-      c.strokeStyle = '#fff6b0';
-      c.lineWidth = 2;
-      c.beginPath();
-      c.moveTo(gx + 6, 0); c.lineTo(gx - 4, water * 0.35); c.lineTo(gx + 5, water * 0.6); c.lineTo(gx - 2, water);
-      c.stroke();
-    }
-    if (t > 1.2 && t < 1.7) {
-      c.fillStyle = `rgba(255,240,180,${1 - (t - 1.2) / 0.5})`;
-      c.fillRect(-200, -10, 500, H + 20);
-    }
-    const by = hor + 40 + Math.sin(t * 2.5) * 1;
-    boatSide(S, 14, by, 0.9);
-    crew(S, 14, by - 6, 0.65, t > 1.6 ? 'alarm' : 'stand', 12);
-  },
-
-  // Закат. Катер рейдеров влетает в кадр с полосами скорости и тормозит заносом.
-  raider(S) {
-    const { c, t, hor } = S;
-    sky(S, '#3a1840', '#c4413b', '#ff9a3d');
-    sun(S, 30, hor - 2, 6, '#ffcf6b');
-    sea(S, '#2a1030', '#7a3a4a', 2);
-    const x = lerp(140, 58, easeOut(seg(t, 0, 2.2)));
-    const drift = seg(t, 2, 2.8);
-    const y = hor + 26;
-    // Полосы скорости
-    if (t < 2.4) {
-      c.fillStyle = 'rgba(255,255,255,0.5)';
-      for (let i = 0; i < 9; i++) c.fillRect(x + 14 + hash(i) * 30, y - 12 + hash(i + 4) * 16, 12 + hash(i + 8) * 14, 0.6);
-    }
-    // Брызги заноса
-    if (drift > 0 && drift < 1) {
-      for (let i = 0; i < 18; i++) {
-        const a = Math.PI + hash(i) * Math.PI * 0.8, r = drift * 20 * (0.4 + hash(i + 2));
-        R(c, x - 8 + Math.cos(a) * r, y - Math.abs(Math.sin(a)) * r * 0.7, 1.3, 1.3, '#ffe0d0');
-      }
-    }
-    c.save();
-    c.translate(x, y);
-    c.rotate(Math.sin(drift * Math.PI) * -0.12);
-    drawRaiderSide(S, 0, 0, 1.3, t > 2.6);
-    c.restore();
-    // Наши — в своей лодке на переднем плане слева
-    const by = hor + 40 + Math.sin(t * 3) * 1;
-    boatSide(S, 14, by, 1);
-    crew(S, 14, by - 7, 0.75, t > 2.4 ? 'alarm' : 'stand', 12);
-  },
-
-  // Финал: причаливаем, лагерь, проектор, стулья и кино под звёздами.
-  outro(S) {
-    const { c, t, hor, H } = S;
-    const night = ease(seg(t, 5, 11));
-    const pan = -lerp(0, 44, ease(seg(t, 3.6, 6.5)));
-    // Под конец камера наезжает на экран проектора — смотрим кино вместе с ними
-    const zk = ease(seg(t, 12.4, 13.6));
-    if (zk > 0) {
-      const fx = 126 + pan, fy = hor + 24 - 21; // центр экрана (с учётом сдвига камеры)
-      c.translate(lerp(fx, 50, zk), fy); c.scale(lerp(1, 3, zk), lerp(1, 3, zk)); c.translate(-fx, -fy);
-    }
-    sky(S, mix('#ff9a5a', '#0b1030', night), mix('#ffb36b', '#1b2450', night), mix('#ffd38a', '#2c3768', night));
-    stars(S, seg(t, 8, 11));
-    sun(S, 20 + pan * 0.3, hor - 4 + night * 14, 6, mix('#ffe08a', '#d06040', night));
-    if (night > 0.6) sun(S, 78, H * 0.18, 3.2, '#f4f1d8'); // луна ниже верхней полосы
-    c.translate(pan, 0);
-    sea(S, mix('#0d3b66', '#06142a', night), mix('#3f78b5', '#132b4f', night), 0.5);
-
-    // Пляж
-    const ground = hor + 24;
-    c.fillStyle = mix('#e6c879', '#6b5a3a', night * 0.8);
-    c.beginPath();
-    c.moveTo(48, H); c.lineTo(58, hor + 10); c.lineTo(220, hor + 10); c.lineTo(220, H); c.closePath(); c.fill();
-    R(c, 58, hor + 10, 162, 2, 'rgba(255,255,255,0.25)');
-    palm(S, 56, ground - 6, 0.9, 1 + Math.sin(t * 1.1 + 1) * 0.25);
-    palm(S, 146, ground - 2, 1.1, 1 + Math.sin(t * 1.3) * 0.25);
-
-    // Экран для кино между шестами + проектор с лучом
-    const sx = 112, sw = 28;
-    const scr = easeOut(seg(t, 9.4, 10.2));
-    if (scr > 0) {
-      R(c, sx - 1, ground - 30, 1.2, 30, '#6b4423');
-      R(c, sx + sw, ground - 30, 1.2, 30, '#6b4423');
-      const sh = 16 * scr;
-      R(c, sx, ground - 29, sw, sh, '#f4f4ee');
-      if (t > 11) movie(S, sx + 1, ground - 28, sw - 2, 14, t - 11);
-    }
-    const proj = easeOut(seg(t, 9, 9.5));
-    if (proj > 0) {
-      const py = ground - 4 - (1 - proj) * 20;
-      R(c, 78, py, 8, 4, '#7a5230'); // ящик
-      R(c, 79, py - 4, 6, 4, '#2b2f36');
-      R(c, 85, py - 3.2, 1.6, 2.2, '#9fe8ff');
-      if (t > 10.1) {
-        // Луч от проектора над головами зрителей к экрану
-        c.fillStyle = `rgba(255,255,220,${0.16 + Math.sin(t * 20) * 0.02})`;
-        c.beginPath(); c.moveTo(86.6, py - 2); c.lineTo(sx, ground - 29); c.lineTo(sx, ground - 13); c.closePath(); c.fill();
-      }
-    }
-
-    // Палатка
-    const tent = seg(t, 6.2, 6.8);
-    if (tent > 0) {
-      const k = tent < 1 ? easeOut(tent) * (1 + Math.sin(tent * Math.PI) * 0.15) : 1;
-      c.save(); c.translate(64, ground); c.scale(k, k);
-      c.fillStyle = '#e8743a';
-      c.beginPath(); c.moveTo(-11, 0); c.lineTo(0, -13); c.lineTo(11, 0); c.closePath(); c.fill();
-      c.fillStyle = '#b5522a';
-      c.beginPath(); c.moveTo(-3, 0); c.lineTo(0, -8); c.lineTo(3, 0); c.closePath(); c.fill();
-      c.restore();
-    }
-
-    // Костёр
-    const fireX = 72;
-    if (t > 7) {
-      R(c, fireX - 4, ground - 1.5, 8, 1.5, '#5a3a1c');
-      R(c, fireX - 3, ground - 2.5, 6, 1.2, '#7a5230');
-      if (t > 7.3) {
-        for (let i = 0; i < 6; i++) {
-          const f = (t * 2 + hash(i)) % 1;
-          const fx = fireX - 2 + hash(i + 1) * 4;
-          R(c, fx, ground - 3 - f * 7, 1.6 * (1 - f) + 0.4, 1.6 * (1 - f) + 0.4, f < 0.4 ? '#ffe14d' : f < 0.7 ? '#ff9a3d' : '#d6262f');
-        }
-        c.fillStyle = `rgba(255,160,60,${0.1 * night})`;
-        c.beginPath(); c.arc(fireX, ground - 3, 18, 0, Math.PI * 2); c.fill();
-      }
-    }
-
-    // Походные стулья
-    const chairs = easeOut(seg(t, 10.8, 11.3));
-    const chairX = [94, 104];
-    if (chairs > 0) for (const x of chairX) chair(S, x, ground, chairs);
-
-    // Лодка причаливает и утыкается в песок
-    const bx = lerp(-40, 44, easeOut(seg(t, 0, 3)));
-    const bump = t > 2.9 && t < 3.2 ? Math.sin((t - 2.9) * 40) * 0.6 : 0;
-    const by = ground + Math.sin(t * 2) * 0.6 * (1 - seg(t, 2.5, 3)) + bump;
-    boatSide(S, bx, by, 1.2);
-
-    // Игроки: стоят в лодке → прыгают на берег → идут к лагерю → садятся на стулья
-    const o = S.o;
-    const keys = o.duo ? ['h', 'g'] : ['h'];
-    keys.forEach((key, i) => {
-      const onBoat = { x: bx - 4 + i * 9, y: by - 8.4 };
-      const shore = { x: 66 + i * 6, y: ground };
-      const camp = { x: 88 + i * 18, y: ground };
-      const seat = { x: chairX[o.duo ? i : 0] + 1, y: ground - 3 };
-      let x, y, pose = 'stand';
-      if (t < 3.6) { x = onBoat.x; y = onBoat.y; }
-      else if (t < 4.3) {
-        const k = seg(t, 3.6 + i * 0.15, 4.3);
-        x = lerp(onBoat.x, shore.x, k); y = lerp(onBoat.y, shore.y, k) - Math.sin(k * Math.PI) * 8; pose = 'jump';
-      } else if (t < 6) {
-        const k = seg(t, 4.3, 6);
-        x = lerp(shore.x, camp.x, k); y = ground; pose = k < 1 ? 'walk' : 'stand';
-      } else if (t < 11.4) { x = camp.x; y = ground; }
-      else if (t < 12.2) {
-        const k = seg(t, 11.4, 12.2);
-        x = lerp(camp.x, seat.x, k); y = ground; pose = 'walk';
-      } else { x = seat.x; y = seat.y; pose = 'sit'; }
-      player(S, x, y, 0.75, TEAM_COLORS[key], o.skins[key], pose, i * 1.7);
-    });
-  },
-};
-
-function chair(S, x, ground, k) {
-  const { c } = S;
-  c.save(); c.translate(x, ground); c.scale(k, k);
-  c.strokeStyle = '#3a3a3a';
-  c.lineWidth = 0.6;
-  c.beginPath(); c.moveTo(-3, 0); c.lineTo(3, -5); c.moveTo(3, 0); c.lineTo(-3, -5); c.stroke();
-  R(c, -3.4, -5.6, 7, 1.4, '#2f6fd6'); // сиденье
-  R(c, 2.6, -11, 1.2, 6, '#2f6fd6'); // спинка
-  c.restore();
-}
-
-// Кино на экране проектора: бежит бронированный титан, на фоне проносятся домики.
-function movie(S, x, y, w, h, t) {
-  const { c } = S;
-  c.save();
-  c.beginPath(); c.rect(x, y, w, h); c.clip();
-  // Небо и земля
-  R(c, x, y, w, h, '#f0b070');
-  R(c, x, y + h * 0.55, w, h * 0.12, '#d88a50');
-  R(c, x, y + h * 0.8, w, h * 0.2, '#6b8a3a');
-  // Домики и деревья уезжают назад — титан бежит
-  for (let i = 0; i < 6; i++) {
-    const hx = x + w - ((t * 9 + i * 7) % (w + 8));
-    const big = i % 3 === 0;
-    R(c, hx, y + h * 0.8 - (big ? 3 : 2), big ? 3 : 2.2, big ? 3 : 2, '#c9c0b0');
-    R(c, hx - 0.3, y + h * 0.8 - (big ? 4 : 2.8), big ? 3.6 : 2.8, 1, '#a0402a');
-  }
-  // Сам титан (ноги, руки — шаг бега)
-  const run = t * 9;
-  const bob = Math.abs(Math.sin(run)) * 0.5;
-  const cx = x + w * 0.42, foot = y + h * 0.82, s = h / 14;
-  const plate = '#d8b65a', dark = '#8a6a2a', skin = '#c98a6a';
-  const legA = Math.sin(run) * 2.2 * s, legB = -legA;
-  R(c, cx - 1.2 * s + legA, foot - 4.5 * s - bob, 1.4 * s, 4.5 * s, plate); // ноги
-  R(c, cx + 0.2 * s + legB, foot - 4.5 * s - bob, 1.4 * s, 4.5 * s, dark);
-  R(c, cx - 1.6 * s, foot - 9 * s - bob, 3.4 * s, 4.8 * s, plate); // торс в пластинах
-  R(c, cx - 1.6 * s, foot - 7.4 * s - bob, 3.4 * s, 0.4 * s, dark);
-  R(c, cx - 1.6 * s, foot - 6 * s - bob, 3.4 * s, 0.4 * s, dark);
-  R(c, cx - 0.4 * s - legA * 0.8, foot - 8.6 * s - bob, 1 * s, 3.6 * s, skin); // руки
-  R(c, cx + 0.8 * s - legB * 0.8, foot - 8.6 * s - bob, 1 * s, 3.6 * s, dark);
-  R(c, cx - 1.1 * s, foot - 11.6 * s - bob, 2.6 * s, 2.7 * s, '#e0c070'); // голова в броне
-  R(c, cx - 1.2 * s, foot - 12.2 * s - bob, 2.8 * s, 0.9 * s, '#f0d878'); // светлые волосы
-  R(c, cx + 0.6 * s, foot - 10.8 * s - bob, 0.8 * s, 0.4 * s, '#fffbe0'); // глаз
-  // Пыль из-под ног
-  for (let i = 0; i < 4; i++) {
-    const f = (t * 2 + i * 0.25) % 1;
-    c.globalAlpha = 1 - f;
-    R(c, cx - 2 * s - f * 6 * s, foot - 0.8 * s - f * 1.5 * s, 1 * s, 1 * s, '#e8d8b8');
-  }
-  c.globalAlpha = 1;
-  c.restore();
-  if (t > 5) {
-    c.font = `2px ${FONT}`;
-    c.textAlign = 'center';
-    c.fillStyle = '#ffffff';
-    c.fillText('КОНЕЦ', x + w / 2, y + 3);
-  }
-}
-
-// Мировой змей сбоку: толстая чешуйчатая шея, рогатая голова, шипы по челюсти, светящийся глаз.
-function drawSerpentSide(S, x, water, rise, jaw) {
-  const { c, t } = S;
-  if (rise <= 0) return;
-  const scale = '#3b5e63', scale2 = '#456b70', belly = '#8fa89a', bone = '#d9cfb0';
-  // Кольца гигантского тела торчат из воды вокруг
-  for (const [hx, r] of [[x + 22, 8], [x + 38, 6], [x - 26, 7]]) {
-    const rr = r * rise;
-    c.fillStyle = scale;
-    c.beginPath(); c.arc(hx, water + 1, rr, Math.PI, 0); c.fill();
-    c.fillStyle = belly;
-    c.fillRect(hx - rr, water - 0.5, rr * 2, 1.2);
-    for (let i = -1; i <= 1; i++) R(c, hx + i * rr * 0.55 - 0.8, water - rr - 1.5 + Math.abs(i) * 1.5, 1.6, 2.4, bone);
-  }
-  const h = rise * 46;
-  const n = 11;
-  for (let i = 0; i < n; i++) {
-    const k = i / (n - 1);
-    const px = x + Math.sin(i * 0.5 + t * 1.5) * 3 * (1 - k) - k * 7;
-    const py = water - k * h;
-    const sz = lerp(17, 12, k);
-    R(c, px - sz / 2, py - sz / 2, sz, sz, i % 2 ? scale : scale2);
-    R(c, px - sz / 2, py - sz / 2, sz * 0.32, sz, belly); // светлое брюхо
-    R(c, px - sz / 2 + sz * 0.32, py - sz / 2, sz * 0.08, sz, 'rgba(0,0,0,0.2)');
-    R(c, px + sz / 2 - 1.2, py - 2, 3, 3.4, bone); // шипы по хребту
-  }
-  // Голова мордой влево
-  const hx = x - 14, hy = water - h - 8;
-  R(c, hx - 16, hy - 8, 28, 10, scale); // верхняя челюсть
-  R(c, hx - 23, hy - 5, 8, 7, scale); // морда
-  R(c, hx - 16, hy - 8, 28, 2, scale2);
-  R(c, hx - 21, hy - 4, 1.4, 1.4, '#111'); // ноздря
-  R(c, hx - 20, hy + 2 + jaw * 9, 25, 5, '#2c4a4f'); // нижняя челюсть
-  if (jaw > 0.1) {
-    R(c, hx - 19, hy + 2, 23, jaw * 9, '#4a0c14');
-    for (let i = 0; i < 7; i++) {
-      R(c, hx - 18 + i * 3.2, hy + 2, 1.2, 2.2, '#f4efe0'); // клыки сверху
-      R(c, hx - 17 + i * 3.2, hy + jaw * 9, 1.2, 2, '#f4efe0'); // и снизу
-    }
-  }
-  // Шипы-«борода» под нижней челюстью
-  for (let i = 0; i < 5; i++) R(c, hx - 14 + i * 4.5, hy + 7 + jaw * 9, 2, 3.2 - (i % 2), bone);
-  // Изогнутые рога назад
-  for (const [ox, oy] of [[0, 0], [5, 2]]) {
-    R(c, hx + 6 + ox, hy - 11 + oy, 3, 4, bone);
-    R(c, hx + 8 + ox, hy - 14 + oy, 4, 3, bone);
-    R(c, hx + 11 + ox, hy - 15.5 + oy, 5, 2, bone);
-    R(c, hx + 15 + ox, hy - 15 + oy, 2, 2, '#b8ad8e');
-  }
-  // Светящийся янтарный глаз
-  c.fillStyle = 'rgba(255,170,40,0.35)';
-  c.beginPath(); c.arc(hx - 3, hy - 4.5, 4, 0, Math.PI * 2); c.fill();
-  R(c, hx - 5, hy - 5.8, 4.4, 2.6, '#ffb32b');
-  R(c, hx - 3.2, hy - 5.8, 1, 2.6, '#1a0a00');
-  R(c, hx - 6, hy - 7, 6, 1.2, scale2); // надбровье
-}
-
-// Колосс: огромный, без кожи — красные мышцы с волокнами, оскал из зубов без губ, редкие тёмные волосы.
-function drawColossus(S, x, base, t) {
-  const { c } = S;
-  const muscle = '#b23a2e', fiber = '#e0705a', deep = '#7a2018', tooth = '#f2ead8';
-  // Руки по бокам
-  R(c, x - 27, base - 58, 9, 48, muscle);
-  R(c, x + 18, base - 58, 9, 48, muscle);
-  for (let i = 0; i < 4; i++) {
-    R(c, x - 25 + i * 2, base - 56, 0.6, 44, fiber);
-    R(c, x + 20 + i * 2, base - 56, 0.6, 44, fiber);
-  }
-  // Торс: грудь, рёбра, пресс
-  R(c, x - 19, base - 62, 38, 62, muscle);
-  R(c, x - 19, base - 62, 38, 3, deep); // плечи
-  R(c, x - 16, base - 56, 14, 10, fiber); // грудные
-  R(c, x + 2, base - 56, 14, 10, fiber);
-  R(c, x - 16, base - 56, 14, 1, deep);
-  R(c, x + 2, base - 56, 14, 1, deep);
-  for (let r = 0; r < 3; r++) for (const sx of [-9, 1]) {
-    R(c, x + sx, base - 42 + r * 8, 8, 6.5, '#c4483a'); // кубики пресса
-    R(c, x + sx, base - 42 + r * 8, 8, 0.8, deep);
-  }
-  R(c, x - 0.6, base - 56, 1.2, 50, deep);
-  // Шея с жилами
-  R(c, x - 6, base - 70, 12, 9, muscle);
-  for (let i = 0; i < 4; i++) R(c, x - 5 + i * 3, base - 70, 0.7, 9, fiber);
-  // Голова-череп
-  const hy = base - 92;
-  R(c, x - 10, hy, 20, 23, muscle);
-  R(c, x - 10, hy, 20, 3, deep);
-  R(c, x - 11, hy + 8, 2, 6, muscle); // уши
-  R(c, x + 9, hy + 8, 2, 6, muscle);
-  // Редкие тёмные волосы
-  for (let i = 0; i < 6; i++) R(c, x - 9 + i * 3.4, hy - 1.5 - (i % 2), 1.2, 2.5, '#1a1210');
-  // Глубоко посаженные глаза под тяжёлым лбом
-  R(c, x - 8, hy + 5, 16, 2, deep);
-  R(c, x - 6, hy + 7, 4, 2.4, '#1a0a08');
-  R(c, x + 2, hy + 7, 4, 2.4, '#1a0a08');
-  R(c, x - 5, hy + 7.6, 1.2, 1, '#e8d8a0');
-  R(c, x + 3, hy + 7.6, 1.2, 1, '#e8d8a0');
-  // Нос-провал
-  R(c, x - 1.5, hy + 11, 3, 2, deep);
-  // Оскал на всю ширину: два ряда зубов без губ
-  R(c, x - 8.5, hy + 14, 17, 7, deep);
-  for (let i = 0; i < 8; i++) {
-    R(c, x - 8 + i * 2.1, hy + 14.2, 1.7, 3, tooth);
-    R(c, x - 8 + i * 2.1, hy + 17.6, 1.7, 3, tooth);
-  }
-  R(c, x - 10, hy + 14, 1.5, 7, fiber); // щёки-мышцы по краям
-  R(c, x + 8.5, hy + 14, 1.5, 7, fiber);
-}
-
-// Пар: клубы поднимаются и тают
-function steam(S, x, y, spread, amount) {
-  const { c, t } = S;
-  if (amount <= 0) return;
-  for (let i = 0; i < 18; i++) {
-    const f = (t * 0.6 + hash(i)) % 1;
-    const px = x + (hash(i + 7) - 0.5) * spread * 2 + Math.sin(t + i) * 2;
-    const py = y + 20 - f * 40;
-    const r = 3 + f * 7;
-    c.fillStyle = `rgba(235,235,235,${Math.min(0.35, amount * 0.35) * (1 - f)})`;
-    c.beginPath(); c.arc(px, py, r, 0, Math.PI * 2); c.fill();
-  }
-}
-
-function drawRaiderSide(S, x, y, s, fists) {
-  const { c, t } = S;
-  c.fillStyle = '#2b2f36';
-  c.beginPath();
-  c.moveTo(x - 14 * s, y - 5 * s); c.lineTo(x + 8 * s, y - 5 * s); c.lineTo(x + 16 * s, y - 2 * s); c.lineTo(x + 10 * s, y + 2 * s); c.lineTo(x - 13 * s, y + 2 * s);
-  c.closePath(); c.fill();
-  R(c, x - 13 * s, y - 2 * s, 26 * s, 1.2 * s, '#d6262f');
-  R(c, x - 16 * s, y - 7 * s, 3 * s, 7 * s, '#444b55'); // мотор сзади
-  for (const dx of [-6, 1]) {
-    R(c, x + dx * s, y - 11 * s, 4 * s, 6 * s, '#444b55');
-    R(c, x + dx * s, y - 14.5 * s, 4 * s, 3.5 * s, '#2b2f36');
-    R(c, x + dx * s, y - 13.2 * s, 4 * s, 1 * s, '#d6262f'); // маска
-    if (fists) R(c, x + (dx + 3.2) * s, y - (16 + Math.abs(Math.sin(t * 10 + dx)) * 2) * s, 1.4 * s, 4 * s, '#444b55');
-  }
-}
-
-function mix(a, b, k) {
-  const pa = parseInt(a.slice(1), 16), pb = parseInt(b.slice(1), 16);
-  const ch = (sh) => Math.round(lerp((pa >> sh) & 255, (pb >> sh) & 255, k));
-  return `rgb(${ch(16)},${ch(8)},${ch(0)})`;
 }
 
 // Кнопка пропуска в верхней чёрной полосе: её надо удерживать, кольцо показывает прогресс.
@@ -694,7 +414,7 @@ function drawSkipButton(ctx, cam, p) {
     ctx.beginPath(); ctx.arc(b.x, b.y, b.r, -Math.PI / 2, -Math.PI / 2 + p * Math.PI * 2); ctx.stroke();
   }
   ctx.fillStyle = '#ffffff';
-  for (const dx of [-7, 0]) { // значок ⏩ из двух треугольников
+  for (const dx of [-7, 0]) {
     ctx.beginPath(); ctx.moveTo(b.x + dx - 1, b.y - 6); ctx.lineTo(b.x + dx + 7, b.y); ctx.lineTo(b.x + dx - 1, b.y + 6); ctx.closePath(); ctx.fill();
   }
   ctx.font = `7px ${FONT}`;
@@ -704,42 +424,58 @@ function drawSkipButton(ctx, cam, p) {
   ctx.globalAlpha = 1;
 }
 
+// ---------- Вывод на экран ----------
+let buf = null, bctx = null;
+
 // cam — камера игры (размеры экрана), o — { duo, skins: { h, g }, skip: 0..1 прогресс удержания }
 export function drawCutscene(ctx, cam, id, t, o) {
   const scene = SCENES[id];
   if (!scene) return;
   const u = Math.min(cam.w / 100, cam.h / 150);
   const W = cam.w / u, H = cam.h / u;
-  const S = { c: ctx, u, W, H, X0: (W - 100) / 2, hor: H * 0.42, t, o };
-  ctx.save();
-  ctx.setTransform(cam.dpr * u, 0, 0, cam.dpr * u, 0, 0);
-  ctx.translate(S.X0, 0);
+  const bw = Math.ceil(W * PPU), bh = Math.ceil(H * PPU);
+  if (!buf) { buf = document.createElement('canvas'); bctx = buf.getContext('2d'); }
+  if (buf.width !== bw || buf.height !== bh) { buf.width = bw; buf.height = bh; }
+  setBuffer(bw / PPU, bh / PPU);
+  bctx.setTransform(PPU, 0, 0, PPU, 0, 0);
+  bctx.globalAlpha = 1;
+  bctx.fillStyle = '#000';
+  bctx.fillRect(0, 0, bw, bh);
+  const X0 = (W - 100) / 2;
+  const S = { c: bctx, u, W, H, X0, hor: Math.round(H * 0.43 * PPU) / PPU, t, o, xmin: -X0 - 10, xmax: 110 + X0 };
+  setTint(null);
+  setCam(S, 1, 50, H * 0.5);
+  bctx.save();
   scene(S);
+  bctx.restore();
+  setTint(null);
+
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(buf, 0, 0, bw, bh, 0, 0, Math.round((bw / PPU) * u * cam.dpr), Math.round((bh / PPU) * u * cam.dpr));
   ctx.restore();
 
   ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
   const sc = { ctx, w: cam.w, h: cam.h };
+  vignette(sc, id === 'outro' ? 0.45 : 0.6);
   letterbox(sc);
-  const solo = !o.duo;
   if (id === 'intro') {
     timedCaption(sc, t, 0.4, 2.6, 'В этот раз не на пенопласте…');
-    timedCaption(sc, t, 2.8, 5.3, 'По плану было добраться до острова на самодельной лодке.');
-    timedCaption(sc, t, 5.4, 7.6, solo ? 'Ты один. Лодка. И ракетка.' : 'Вас двое. Лодка. И две ракетки.');
-    if (t > 7.3) {
-      const a = Math.min(1, (t - 7.3) * 3);
-      caption(sc, 'ДВОЕ В ЛОДКЕ', a, Math.min(28, Math.floor((cam.w - 40) / 12)), cam.h * 0.3); // в одну строку
-    }
-  } else if (id === 'serpent') bossCard(sc, seg(t, 3.5, 4.1), 'МИРОВОЙ ЗМЕЙ', 'Проснулся в глубинах');
-  else if (id === 'giant') bossCard(sc, seg(t, 4, 4.6), 'КОЛОСС', 'Великан из пара');
-  else if (id === 'raider') bossCard(sc, seg(t, 3, 3.6), 'КАТЕР РЕЙДЕРОВ', 'Финальная погоня! Остров близко');
+    timedCaption(sc, t, 2.8, 5.4, 'По плану было добраться до острова на самодельной лодке.');
+    timedCaption(sc, t, 5.6, 7.6, o.duo ? 'Вас двое. Лодка. И две ракетки.' : 'Ты один. Лодка. И ракетка.');
+    if (t > 7.6) titlePop(sc, 'ДВОЕ В ЛОДКЕ', t - 7.6, Math.min(28, Math.floor((cam.w - 40) / 12)), cam.h * 0.3);
+  } else if (id === 'serpent') bossCard(sc, seg(t, 4.1, 4.7), 'МИРОВОЙ ЗМЕЙ', 'Проснулся в глубинах', t);
+  else if (id === 'giant') bossCard(sc, seg(t, 4.5, 5.1), 'КОЛОСС', 'Великан из пара', t);
+  else if (id === 'raider') bossCard(sc, seg(t, 3.0, 3.6), 'КАТЕР РЕЙДЕРОВ', 'Финальная погоня! Остров близко', t);
   else if (id === 'outro') {
-    timedCaption(sc, t, 0.4, 2.8, 'Дааа, блять!!!', 16);
-    timedCaption(sc, t, 4.3, 7.5, 'Разбиваем лагерь');
-    timedCaption(sc, t, 8.6, 11, 'А теперь — кино!');
-    timedCaption(sc, t, 12.5, 17.5, 'Остров, остров — ужин готов! 🍗');
+    timedCaption(sc, t, 0.4, 2.9, 'Дааа, блять!!!', 16);
+    timedCaption(sc, t, 4.4, 7.6, 'Разбиваем лагерь');
+    timedCaption(sc, t, 8.8, 11, 'А теперь — кино!');
+    timedCaption(sc, t, 14.6, 19.6, 'Остров, остров — ужин готов! 🍗');
+    if (t > 18) caption(sc, 'КОНЕЦ', Math.min(1, (t - 18) * 3), 14, cam.h * 0.5 - 17 * u);
   }
   drawSkipButton(ctx, cam, o.skip || 0);
-  // Плавное затемнение в начале и в конце
   const fade = Math.max(1 - t * 2.5, 1 - (CUT_TIME[id] - t) * 2.5);
   if (fade > 0) { ctx.fillStyle = `rgba(0,0,0,${clamp01(fade)})`; ctx.fillRect(0, 0, cam.w, cam.h); }
 }

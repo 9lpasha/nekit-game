@@ -159,7 +159,7 @@ const AI = {
   giant(s, e, dt, hooks) {
     e.t -= dt;
     if (e.state === 'emerge') {
-      e.ax = WORLD_W / 2; e.ay = 3.4; // ниже полосы здоровья, чтобы голову было видно
+      e.ax = WORLD_W / 2; e.ay = 4.6; // ниже полосы здоровья, чтобы голову и валун было видно
       moveTo(e, dt, 3);
       if (e.t <= 0 && Math.abs(e.y - e.ay) < 0.1) { e.state = 'idle'; e.t = 1; }
       return;

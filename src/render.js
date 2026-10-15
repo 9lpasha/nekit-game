@@ -419,34 +419,107 @@ function drawHelm(ctx, view, active) {
   ctx.restore();
 }
 
+// ---------- Мелкие помощники для спрайтов вида сверху ----------
+function fE(ctx, x, y, rx, ry, col, rot = 0) {
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2); ctx.fill();
+}
+function fR(ctx, x, y, w, h, col) { ctx.fillStyle = col; ctx.fillRect(x, y, w, h); }
+function fRR(ctx, x, y, w, h, r, col) { ctx.fillStyle = col; roundRect(ctx, x, y, w, h, r); ctx.fill(); }
+function fPath(ctx, pts) { ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath(); }
+// Иней поверх замороженного босса
+function frost(ctx, x, y, r) {
+  ctx.fillStyle = 'rgba(170,230,255,0.45)';
+  ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.05;
+  for (let k = 0; k < 3; k++) {
+    const a = (k / 3) * Math.PI;
+    ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * r * 0.5, y + Math.sin(a) * r * 0.5); ctx.lineTo(x - Math.cos(a) * r * 0.5, y - Math.sin(a) * r * 0.5); ctx.stroke();
+  }
+}
+// Пальма сверху: звезда из листьев с прожилками и кокосы в центре
+function palmTop(ctx, x, y, r, time) {
+  fE(ctx, x + r * 0.25, y + r * 0.3, r * 0.95, r * 0.55, 'rgba(0,0,0,0.2)');
+  for (let k = 0; k < 7; k++) {
+    const a = (k / 7) * Math.PI * 2 + Math.sin(time * 1.2 + k) * 0.06;
+    ctx.save(); ctx.translate(x, y); ctx.rotate(a);
+    fE(ctx, r * 0.48, 0, r * 0.53, r * 0.18, '#1f5a20');
+    fE(ctx, r * 0.46, -0.02, r * 0.48, r * 0.13, k % 2 ? '#3f9a36' : '#4fae42');
+    ctx.strokeStyle = '#7ad064'; ctx.lineWidth = 0.04;
+    ctx.beginPath(); ctx.moveTo(r * 0.06, 0); ctx.lineTo(r * 0.9, 0); ctx.stroke();
+    ctx.restore();
+  }
+  fE(ctx, x, y, r * 0.2, r * 0.2, '#5a3a1c');
+  for (let k = 0; k < 3; k++) fE(ctx, x + Math.cos(k * 2.1) * r * 0.12, y + Math.sin(k * 2.1) * r * 0.12, r * 0.09, r * 0.09, '#3a2410');
+}
+function gullTop(ctx, x, y, time) {
+  const f = Math.sin(time * 9) * 0.12;
+  ctx.strokeStyle = '#f4f4ee'; ctx.lineWidth = 0.07; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x - 0.32, y + f); ctx.lineTo(x, y - 0.06); ctx.lineTo(x + 0.32, y + f); ctx.stroke();
+}
+
 // Остров показывается, когда до него осталось меньше экрана пути.
 function drawIsland(ctx, view, time) {
   const remaining = view.isl - view.di;
   if (!(remaining < 24)) return;
-  const y = BOAT.y - remaining * ((BOAT.y + 1) / 24); // нижний край: от верха экрана до носа лодки
+  const y = BOAT.y - remaining * ((BOAT.y + 1) / 24); // нижний край острова: от верха экрана до носа лодки
   const cx = WORLD_W / 2 - (view.bx || 0) * 0.15;
-  ctx.fillStyle = 'rgba(255,255,255,0.35)';
-  ctx.fillRect(cx - 5.6, y - 0.2, 11.2, 0.4);
-  ctx.fillStyle = '#e6c879';
-  ctx.fillRect(cx - 5.2, y - 3, 10.4, 3);
-  ctx.fillStyle = '#d4b465';
-  for (let i = 0; i < 10; i++) ctx.fillRect(cx - 5.2 + i * 1.04, y - 0.6 + (i % 2) * 0.2, 1.04, 0.6);
-  ctx.fillStyle = '#58b04a';
-  ctx.fillRect(cx - 4.2, y - 6, 8.4, 3.2);
-  ctx.fillStyle = '#4a9a3e';
-  ctx.fillRect(cx - 3.2, y - 7.5, 6.4, 1.6);
-  // Пальма
-  ctx.fillStyle = '#7a5230';
-  ctx.fillRect(cx + 1.5, y - 4.4, 0.3, 2.2);
-  ctx.fillStyle = '#3f8f35';
-  const sway = Math.sin(time * 1.5) * 0.1;
-  ctx.fillRect(cx + 0.6 + sway, y - 4.7, 2.1, 0.4);
-  ctx.fillRect(cx + 1.4 + sway, y - 5.4, 0.5, 1.4);
-  // Костёр — «ужин готов»
-  ctx.fillStyle = '#ff9a3d';
-  ctx.fillRect(cx - 1.6, y - 2.2 - Math.abs(Math.sin(time * 8)) * 0.1, 0.4, 0.4);
-  ctx.fillStyle = '#ffe14d';
-  ctx.fillRect(cx - 1.5, y - 2.0, 0.2, 0.2);
+  const cy = y - 3.6;
+  // Бирюзовое мелководье и прибой
+  fE(ctx, cx, cy, 7.8, 5, 'rgba(70,200,200,0.28)');
+  fE(ctx, cx, cy, 7, 4.35, 'rgba(110,230,215,0.35)');
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 0.1;
+  ctx.setLineDash([0.45, 0.3]); ctx.lineDashOffset = -time * 0.6;
+  ctx.beginPath(); ctx.ellipse(cx, cy, 6.4 + Math.sin(time * 1.6) * 0.1, 3.85 + Math.sin(time * 1.6) * 0.06, 0, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  // Песок с мокрой кромкой и песчинками
+  fE(ctx, cx, cy, 6.15, 3.6, '#c9a55a');
+  fE(ctx, cx, cy - 0.08, 5.9, 3.4, '#ecd08a');
+  for (let i = 0; i < 30; i++) {
+    const a = i * 2.39, rr = 0.4 + ((i * 37) % 10) / 10 * 0.55;
+    fR(ctx, cx + Math.cos(a) * 5.6 * rr, cy + Math.sin(a) * 3.2 * rr, 0.07, 0.07, i % 2 ? '#d4b46a' : '#fff0c0');
+  }
+  // Зелень с кустами
+  fE(ctx, cx - 0.4, cy - 0.5, 4.4, 2.5, '#2f6e30');
+  fE(ctx, cx - 0.4, cy - 0.62, 4.15, 2.25, '#4c9c44');
+  for (const [dx, dy, r] of [[-2.8, -0.3, 0.9], [2.4, -0.9, 1], [0.6, 0.6, 0.8], [-1, -1.5, 0.85]]) {
+    fE(ctx, cx + dx, cy + dy, r, r * 0.8, '#245a26');
+    fE(ctx, cx + dx - 0.12, cy + dy - 0.1, r * 0.75, r * 0.6, '#5aae4a');
+  }
+  // Камни на берегу
+  for (const [dx, dy, r] of [[-5, 0.6, 0.45], [4.6, 1.2, 0.38], [5.2, -0.8, 0.3]]) {
+    fE(ctx, cx + dx, cy + dy, r, r * 0.75, '#3a3e44');
+    fE(ctx, cx + dx - 0.06, cy + dy - 0.06, r * 0.85, r * 0.6, '#8b939c');
+    fE(ctx, cx + dx - 0.12, cy + dy - 0.14, r * 0.35, r * 0.2, '#b8c0c8');
+  }
+  // Деревянный пирс к лодке
+  const px = cx + 1.6;
+  fR(ctx, px - 0.62, cy + 2.6, 1.24, 2.7, '#3a2410');
+  for (let k = 0; k < 7; k++) fR(ctx, px - 0.55, cy + 2.68 + k * 0.37, 1.1, 0.3, k % 2 ? '#a8763f' : '#9c6c37');
+  for (const sx of [-0.66, 0.5]) for (let k = 0; k < 3; k++) fR(ctx, px + sx, cy + 2.8 + k * 1.1, 0.16, 0.22, '#2a1808');
+  // Костёр, свет и дым
+  const fx = cx - 1.8, fy = cy + 0.7;
+  ctx.fillStyle = 'rgba(255,150,60,0.25)';
+  ctx.beginPath(); ctx.arc(fx, fy, 0.9 + Math.sin(time * 12) * 0.05, 0, Math.PI * 2); ctx.fill();
+  for (let k = 0; k < 6; k++) fE(ctx, fx + Math.cos(k * 1.05) * 0.35, fy + Math.sin(k * 1.05) * 0.25, 0.1, 0.08, '#6f7780');
+  for (let k = 0; k < 5; k++) {
+    const h = 0.18 + Math.abs(Math.sin(time * 11 + k * 1.7)) * 0.18;
+    fR(ctx, fx - 0.2 + k * 0.09, fy - h, 0.08, h, ['#d6262f', '#ff7a1a', '#ffc93d', '#ff7a1a', '#d6262f'][k]);
+  }
+  for (let k = 0; k < 5; k++) {
+    const f = (time * 0.35 + k / 5) % 1;
+    ctx.fillStyle = `rgba(200,200,205,${0.4 * (1 - f)})`;
+    ctx.beginPath(); ctx.arc(fx + Math.sin(time + k) * 0.25 + f * 0.6, fy - 0.4 - f * 2.4, 0.15 + f * 0.4, 0, Math.PI * 2); ctx.fill();
+  }
+  // Пальмы
+  palmTop(ctx, cx - 3, cy - 1.2, 1.6, time);
+  palmTop(ctx, cx + 2.5, cy - 1.6, 1.85, time + 1);
+  palmTop(ctx, cx + 0.2, cy - 2.4, 1.4, time + 2);
+  // Чайки кружат над островом
+  for (let i = 0; i < 3; i++) {
+    const a = time * 0.6 + i * 2.1;
+    gullTop(ctx, cx + Math.cos(a) * 4.2, cy - 2.2 + Math.sin(a) * 1.8, time + i);
+  }
 }
 
 // Шторм за кормой: фиолетовая стена с молниями. gap — сколько блоков до неё.
@@ -611,141 +684,203 @@ function drawCardBar(ctx, cam, view, hud) {
 // ---------- Боссы, рейдеры, нитро ----------
 const BOSS_NAMES = { serpent: 'МИРОВОЙ ЗМЕЙ', giant: 'КОЛОСС', raider: 'КАТЕР РЕЙДЕРОВ' };
 
-// Мировой змей (вид сверху): сине-серая чешуя, светлое брюхо, костяные рога и шипы, янтарные глаза.
-function drawSerpent(ctx, e, time) {
-  const { x, y } = e;
-  if (e.under) {
-    // Под водой видна только огромная тень и рябь
-    ctx.fillStyle = 'rgba(5,30,50,0.45)';
-    ctx.beginPath(); ctx.ellipse(x, y, 1.6, 0.7, 0, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(200,235,255,0.4)';
-    ctx.lineWidth = 0.06;
-    ctx.beginPath(); ctx.arc(x, y, 0.9 + (time % 1) * 0.7, 0, Math.PI * 2); ctx.stroke();
-    return;
-  }
-  const side = x < WORLD_W / 2 ? -1 : 1; // тело уходит от лодки
-  const flash = e.flash < 0.12;
-  const scale = flash ? '#ffffff' : '#3b5e63', scale2 = '#456b70', belly = '#8fa89a', bone = '#d9cfb0';
-  // Кольца тела из воды
-  for (let i = 3; i >= 1; i--) {
-    const hx = x + side * i * 0.95, hy = y + Math.sin(time * 3 + i) * 0.15 + i * 0.28;
-    ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(hx - 0.45, hy + 0.22, 0.9, 0.25);
-    ctx.fillStyle = i % 2 ? scale2 : scale;
-    ctx.fillRect(hx - 0.45, hy - 0.38, 0.9, 0.6);
-    ctx.fillStyle = belly;
-    ctx.fillRect(hx - 0.45, hy + 0.1, 0.9, 0.12);
-    ctx.fillStyle = bone;
-    ctx.fillRect(hx - 0.08, hy - 0.52, 0.16, 0.16);
-  }
-  // Голова
-  ctx.fillStyle = scale;
-  ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.2);
-  ctx.fillStyle = scale2;
-  ctx.fillRect(x - 0.75, y - 0.75, 1.5, 0.2);
-  ctx.fillStyle = '#2c4a4f';
-  ctx.fillRect(x - 0.75, y + 0.2, 1.5, 0.28);
-  // Рога назад и шипы
-  ctx.fillStyle = bone;
-  ctx.fillRect(x - 0.7, y - 1.05, 0.22, 0.35);
-  ctx.fillRect(x - 0.85, y - 1.2, 0.3, 0.18);
-  ctx.fillRect(x + 0.48, y - 1.05, 0.22, 0.35);
-  ctx.fillRect(x + 0.55, y - 1.2, 0.3, 0.18);
-  for (let i = 0; i < 4; i++) ctx.fillRect(x - 0.6 + i * 0.38, y + 0.46, 0.14, 0.18);
-  // Светящиеся глаза
-  ctx.fillStyle = 'rgba(255,170,40,0.35)';
-  ctx.fillRect(x - 0.55, y - 0.5, 0.42, 0.34);
-  ctx.fillRect(x + 0.13, y - 0.5, 0.42, 0.34);
-  ctx.fillStyle = '#ffb32b';
-  ctx.fillRect(x - 0.5, y - 0.45, 0.3, 0.22);
-  ctx.fillRect(x + 0.2, y - 0.45, 0.3, 0.22);
-  ctx.fillStyle = '#1a0a00';
-  ctx.fillRect(x - 0.38, y - 0.45, 0.07, 0.22);
-  ctx.fillRect(x + 0.32, y - 0.45, 0.07, 0.22);
-  // Пасть с клыками, когда плюётся
-  if (e.throwT < 0.4) {
-    ctx.fillStyle = '#4a0c14';
-    ctx.fillRect(x - 0.35, y + 0.45, 0.7, 0.3);
-    ctx.fillStyle = '#f4efe0';
-    ctx.fillRect(x - 0.3, y + 0.45, 0.1, 0.14);
-    ctx.fillRect(x + 0.2, y + 0.45, 0.1, 0.14);
-    ctx.fillStyle = '#9dff3d';
-    ctx.fillRect(x - 0.12, y + 0.6, 0.24, 0.2);
-  }
+// Мировой змей (вид сверху): кольца из воды с пеной, рогатая голова смотрит на лодку, глаза светятся.
+const SERP_TOP = { ol: '#0e1a1e', sc: '#3d6268', sc2: '#47717a', li: '#79a3a4', dk: '#22383c', bo: '#e6dbbb', boD: '#a89c7c' };
+function spikeTop(ctx, x, y, C) {
+  ctx.fillStyle = C.ol;
+  fPath(ctx, [[x - 0.13, y + 0.06], [x, y - 0.26], [x + 0.13, y + 0.06]]); ctx.fill();
+  ctx.fillStyle = C.bo;
+  fPath(ctx, [[x - 0.08, y + 0.03], [x, y - 0.19], [x + 0.08, y + 0.03]]); ctx.fill();
 }
 
-// Колосс (вид сверху): по пояс в воде, красные мышцы, оскал из зубов, вокруг клубится пар.
+function drawSerpent(ctx, e, time) {
+  const { x, y } = e;
+  const C = SERP_TOP;
+  const side = x < WORLD_W / 2 ? -1 : 1; // тело уходит от лодки
+  if (e.under) {
+    // Под водой: длинная тень, рябь и пузыри
+    for (let i = 0; i < 5; i++) fE(ctx, x + side * i * 0.8, y + Math.sin(time * 2 + i) * 0.25, 0.95 - i * 0.08, 0.58 - i * 0.05, 'rgba(4,24,40,0.45)');
+    ctx.strokeStyle = 'rgba(200,235,255,0.5)'; ctx.lineWidth = 0.05;
+    for (let k = 0; k < 2; k++) {
+      const f = (time * 0.9 + k * 0.5) % 1;
+      ctx.globalAlpha = 1 - f;
+      ctx.beginPath(); ctx.ellipse(x, y, 0.6 + f * 1.3, (0.6 + f * 1.3) * 0.6, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 6; i++) { const f = (time * 1.4 + i / 6) % 1; fR(ctx, x + Math.sin(i * 2.3) * 0.7, y - f * 0.7, 0.08, 0.08, '#d8f0ff'); }
+    return;
+  }
+  const flash = e.flash < 0.12;
+  // Кольца тела (от дальних к ближним)
+  for (let i = 3; i >= 1; i--) {
+    const hx = x + side * (0.35 + i * 0.95), hy = y + 0.35 + i * 0.3 + Math.sin(time * 3 + i) * 0.1;
+    const base = flash ? '#ffffff' : i % 2 ? C.sc : C.sc2;
+    ctx.strokeStyle = 'rgba(220,240,255,0.5)'; ctx.lineWidth = 0.05;
+    ctx.beginPath(); ctx.ellipse(hx, hy + 0.26, 0.74 + Math.sin(time * 4 + i) * 0.05, 0.25, 0, 0, Math.PI * 2); ctx.stroke();
+    fE(ctx, hx, hy, 0.57, 0.45, C.ol);
+    fE(ctx, hx, hy - 0.02, 0.5, 0.38, base);
+    fE(ctx, hx + 0.16, hy + 0.06, 0.3, 0.26, C.dk);
+    fE(ctx, hx + 0.06, hy, 0.33, 0.28, base);
+    fE(ctx, hx - 0.18, hy - 0.16, 0.2, 0.09, C.li);
+    for (let k = 0; k < 6; k++) fR(ctx, hx - 0.3 + (k % 3) * 0.25 + (k > 2 ? 0.12 : 0), hy - 0.1 + (k > 2 ? 0.15 : 0), 0.07, 0.05, C.dk);
+    for (let k = -1; k <= 1; k++) spikeTop(ctx, hx + k * 0.26, hy - 0.4 + Math.abs(k) * 0.08, C);
+    ctx.fillStyle = 'rgba(240,250,255,0.85)';
+    for (let k = 0; k < 6; k++) ctx.fillRect(hx - 0.55 + k * 0.2, hy + 0.33 + Math.sin(time * 6 + k) * 0.03, 0.12, 0.06);
+  }
+  // Шея
+  for (let k = 3; k >= 0; k--) {
+    const nx = x + side * k * 0.2, ny = y + 0.3 + k * 0.05;
+    fE(ctx, nx, ny, 0.5, 0.42, C.ol);
+    fE(ctx, nx, ny - 0.02, 0.44, 0.36, flash ? '#ffffff' : C.sc);
+  }
+  // Голова повёрнута к лодке (в локальных координатах +y — вперёд)
+  const ang = Math.atan2(BOAT.y + BOAT.h / 2 - y, BOAT.x + BOAT.w / 2 - x) - Math.PI / 2;
+  const open = e.throwT < 0.45;
+  ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+  ctx.lineCap = 'round';
+  for (const s of [-1, 1]) {
+    for (const [col, w] of [[C.ol, 0.28], [C.bo, 0.17]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = w;
+      ctx.beginPath(); ctx.moveTo(s * 0.35, -0.3); ctx.quadraticCurveTo(s * 1.0, -0.7, s * 0.72, -1.3); ctx.stroke();
+    }
+    ctx.strokeStyle = C.boD; ctx.lineWidth = 0.05;
+    for (const k of [0.35, 0.6]) { ctx.beginPath(); ctx.moveTo(s * (0.45 + k * 0.4), -0.4 - k * 0.6); ctx.lineTo(s * (0.6 + k * 0.4), -0.35 - k * 0.6); ctx.stroke(); }
+  }
+  if (open) { // нижняя челюсть видна, когда пасть раскрыта
+    fRR(ctx, -0.38, 0.42, 0.76, 0.68, 0.16, C.ol);
+    fRR(ctx, -0.32, 0.47, 0.64, 0.58, 0.14, '#2c4a4f');
+    fRR(ctx, -0.25, 0.5, 0.5, 0.4, 0.1, '#5a0f18');
+    fR(ctx, -0.1, 0.7, 0.2, 0.18, '#9dff3d');
+    for (let k = 0; k < 4; k++) fR(ctx, -0.22 + k * 0.14, 0.98, 0.05, 0.08, '#f4efe0');
+  }
+  fRR(ctx, -0.62, -0.55, 1.24, 1.0, 0.25, C.ol);
+  fRR(ctx, -0.56, -0.5, 1.12, 0.9, 0.22, flash ? '#ffffff' : C.sc);
+  const sy = open ? 0.12 : 0.24;
+  fRR(ctx, -0.43, sy, 0.86, 0.74, 0.2, C.ol);
+  fRR(ctx, -0.37, sy + 0.04, 0.74, 0.64, 0.17, flash ? '#ffffff' : C.sc2);
+  fR(ctx, -0.07, -0.42, 0.14, 1.1, C.li);
+  fR(ctx, -0.5, -0.13, 0.32, 0.12, C.dk);
+  fR(ctx, 0.18, -0.13, 0.32, 0.12, C.dk);
+  fR(ctx, -0.18, sy + 0.56, 0.08, 0.06, '#120808');
+  fR(ctx, 0.1, sy + 0.56, 0.08, 0.06, '#120808');
+  for (const s of [-1, 1]) {
+    fE(ctx, s * 0.42, 0.03, 0.25, 0.25, 'rgba(255,160,40,0.35)');
+    fR(ctx, s * 0.42 - 0.11, -0.04, 0.22, 0.14, '#ffb32b');
+    fR(ctx, s * 0.42 - 0.02, -0.04, 0.04, 0.14, '#1a0800');
+    ctx.fillStyle = C.bo;
+    for (let k = 0; k < 3; k++) { fPath(ctx, [[s * 0.4, 0.28 + k * 0.2], [s * 0.64, 0.34 + k * 0.2], [s * 0.4, 0.4 + k * 0.2]]); ctx.fill(); }
+  }
+  ctx.restore();
+  if (e.frozen) frost(ctx, x, y, 0.85);
+}
+
+// Колосс (вид сверху): по пояс в воде, мышцы с волокнами, оскал; при броске поднимает валун над головой.
 function drawGiant(ctx, e, time) {
   const { x, y } = e;
   const flash = e.flash < 0.12;
-  const muscle = flash ? '#ffffff' : '#b23a2e', fiber = '#e0705a', deep = '#7a2018';
-  // Вода вокруг пояса
-  ctx.strokeStyle = 'rgba(230,245,255,0.5)';
-  ctx.lineWidth = 0.08;
-  ctx.beginPath(); ctx.ellipse(x, y + 0.6, 1.7 + Math.sin(time * 3) * 0.05, 0.55, 0, 0, Math.PI * 2); ctx.stroke();
-  // Руки (поднимает, когда бросает)
-  const arm = e.throwT < 0.5 ? -0.7 : 0;
-  ctx.fillStyle = muscle;
-  ctx.fillRect(x - 1.35, y - 1.1 + arm, 0.45, 1.3);
-  ctx.fillRect(x + 0.9, y - 1.1 + arm, 0.45, 1.3);
-  // Торс
-  ctx.fillRect(x - 0.9, y - 1.3, 1.8, 1.8);
-  ctx.fillStyle = fiber;
-  ctx.fillRect(x - 0.75, y - 1.15, 0.65, 0.5);
-  ctx.fillRect(x + 0.1, y - 1.15, 0.65, 0.5);
-  ctx.fillStyle = deep;
-  ctx.fillRect(x - 0.03, y - 1.15, 0.06, 1.5);
-  ctx.fillRect(x - 0.9, y - 1.3, 1.8, 0.12);
+  const C = { ol: '#2a0604', m: flash ? '#ffffff' : '#b23a2e', m2: flash ? '#ffffff' : '#c64a3c', l: '#e57a62', d: '#7a2018', x: '#4a0e0a', tooth: '#f4ecd8', hair: '#120c0c', eye: '#efe0a8' };
+  const throwing = e.throwT < 0.6;
+  // Волны вокруг пояса
+  ctx.strokeStyle = 'rgba(230,245,255,0.55)'; ctx.lineWidth = 0.07;
+  for (let k = 0; k < 2; k++) {
+    const f = (time * 0.6 + k * 0.5) % 1;
+    ctx.globalAlpha = 1 - f;
+    ctx.beginPath(); ctx.ellipse(x, y + 0.65, 1.6 + f * 0.9, 0.5 + f * 0.25, 0, 0, Math.PI * 2); ctx.stroke();
+  }
+  ctx.globalAlpha = 1;
+  // Руки
+  const armY = throwing ? -2.0 : -0.95, armH = throwing ? 1.75 : 1.5;
+  for (const s of [-1, 1]) {
+    fRR(ctx, x + s * 1.2 - 0.3, y + armY - 0.05, 0.6, armH + 0.1, 0.18, C.ol);
+    fRR(ctx, x + s * 1.2 - 0.24, y + armY, 0.48, armH, 0.15, C.m);
+    for (let k = 0; k < 3; k++) fR(ctx, x + s * 1.2 - 0.14 + k * 0.12, y + armY + 0.12, 0.035, armH - 0.3, k % 2 ? C.d : C.l);
+  }
+  if (throwing) {
+    fE(ctx, x, y - 2.95, 0.66, 0.5, '#2a2e34');
+    fE(ctx, x, y - 3.0, 0.6, 0.44, '#7d858e');
+    fE(ctx, x - 0.18, y - 3.14, 0.26, 0.14, '#a8b0b8');
+    fR(ctx, x + 0.15, y - 2.9, 0.18, 0.06, '#5d646c');
+  }
+  // Туловище-трапеция с обводкой
+  const torso = [[x - 1.08, y - 1.38], [x + 1.08, y - 1.38], [x + 0.8, y + 0.72], [x - 0.8, y + 0.72]];
+  fPath(ctx, torso); ctx.strokeStyle = C.ol; ctx.lineWidth = 0.14; ctx.stroke(); ctx.fillStyle = C.m; ctx.fill();
+  fE(ctx, x - 0.42, y - 0.98, 0.42, 0.3, C.m2);
+  fE(ctx, x + 0.42, y - 0.98, 0.42, 0.3, C.m2);
+  fR(ctx, x - 0.75, y - 1.25, 0.6, 0.06, C.l);
+  fR(ctx, x + 0.15, y - 1.25, 0.6, 0.06, C.l);
+  fR(ctx, x - 0.03, y - 1.25, 0.06, 1.9, C.d);
+  for (let r = 0; r < 3; r++) for (const sx of [-0.4, 0.06]) {
+    fR(ctx, x + sx, y - 0.58 + r * 0.38, 0.34, 0.3, C.m2);
+    fR(ctx, x + sx, y - 0.58 + r * 0.38, 0.34, 0.05, C.l);
+  }
+  for (const s of [-1, 1]) for (let r = 0; r < 3; r++) fR(ctx, x + s * 0.72 - (s > 0 ? 0.2 : 0), y - 0.55 + r * 0.3, 0.2, 0.05, C.d);
   // Голова-череп с оскалом
-  ctx.fillStyle = muscle;
-  ctx.fillRect(x - 0.55, y - 2.25, 1.1, 1.0);
-  ctx.fillStyle = '#1a1210';
-  for (let i = 0; i < 4; i++) ctx.fillRect(x - 0.5 + i * 0.3, y - 2.35, 0.12, 0.14);
-  ctx.fillStyle = '#1a0a08';
-  ctx.fillRect(x - 0.38, y - 2.0, 0.22, 0.14);
-  ctx.fillRect(x + 0.16, y - 2.0, 0.22, 0.14);
-  ctx.fillStyle = deep;
-  ctx.fillRect(x - 0.45, y - 1.62, 0.9, 0.3);
-  ctx.fillStyle = '#f2ead8';
-  for (let i = 0; i < 5; i++) {
-    ctx.fillRect(x - 0.42 + i * 0.18, y - 1.61, 0.12, 0.12);
-    ctx.fillRect(x - 0.42 + i * 0.18, y - 1.45, 0.12, 0.12);
+  fRR(ctx, x - 0.6, y - 2.32, 1.2, 1.12, 0.3, C.ol);
+  fRR(ctx, x - 0.54, y - 2.26, 1.08, 1.0, 0.26, C.m2);
+  for (let i = 0; i < 5; i++) fR(ctx, x - 0.46 + i * 0.22, y - 2.42 - (i % 2) * 0.06, 0.08, 0.16, C.hair);
+  fR(ctx, x - 0.5, y - 2.02, 1.0, 0.1, C.d);
+  fR(ctx, x - 0.4, y - 1.92, 0.26, 0.18, C.x);
+  fR(ctx, x + 0.14, y - 1.92, 0.26, 0.18, C.x);
+  fR(ctx, x - 0.33, y - 1.86, 0.1, 0.06, C.eye);
+  fR(ctx, x + 0.21, y - 1.86, 0.1, 0.06, C.eye);
+  fR(ctx, x - 0.06, y - 1.7, 0.12, 0.1, C.x);
+  fR(ctx, x - 0.44, y - 1.56, 0.88, 0.3, C.x);
+  for (let i = 0; i < 6; i++) {
+    fR(ctx, x - 0.42 + i * 0.145, y - 1.55, 0.11, 0.12, C.tooth);
+    fR(ctx, x - 0.42 + i * 0.145, y - 1.4, 0.11, 0.12, C.tooth);
   }
-  // Пар
-  for (let i = 0; i < 7; i++) {
-    const f = (time * 0.7 + i / 7) % 1;
-    const px = x + Math.sin(i * 2.3) * 1.2;
-    const py = y - 1 - f * 1.8;
+  // Вода по пояс и пена
+  fR(ctx, x - 1.3, y + 0.4, 2.6, 0.5, 'rgba(20,80,130,0.55)');
+  ctx.fillStyle = 'rgba(240,250,255,0.85)';
+  for (let k = 0; k < 8; k++) ctx.fillRect(x - 1.1 + k * 0.28, y + 0.38 + Math.sin(time * 5 + k) * 0.04, 0.16, 0.06);
+  // Пар клубится вокруг
+  for (let i = 0; i < 9; i++) {
+    const f = (time * 0.7 + i / 9) % 1;
     ctx.fillStyle = `rgba(235,235,235,${0.35 * (1 - f)})`;
-    ctx.beginPath(); ctx.arc(px, py, 0.2 + f * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(x + Math.sin(i * 2.3) * 1.3, y - 1.1 - f * 1.9, 0.18 + f * 0.48, 0, Math.PI * 2); ctx.fill();
   }
+  if (e.frozen) frost(ctx, x, y - 1, 1.3);
 }
 
+// Катер рейдеров (вид сверху): нос к лодке, лобовое стекло, мотор с брызгами, флаг с черепом.
 function drawRaider(ctx, e, time) {
   const { x, y } = e;
-  // Пенный след
-  ctx.fillStyle = 'rgba(230,245,255,0.5)';
-  for (let i = 0; i < 6; i++) ctx.fillRect(x - 0.3 + Math.sin(time * 8 + i) * 0.2, y - 1 - i * 0.35, 0.6 - i * 0.06, 0.15);
-  // Корпус катера носом к лодке
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fillRect(x - 0.75, y - 0.7, 1.6, 1.7);
-  ctx.fillStyle = e.flash < 0.12 ? '#ffffff' : '#2b2f36';
-  ctx.beginPath();
-  ctx.moveTo(x - 0.8, y - 0.9); ctx.lineTo(x + 0.8, y - 0.9); ctx.lineTo(x + 0.8, y + 0.4); ctx.lineTo(x, y + 1.1); ctx.lineTo(x - 0.8, y + 0.4);
-  ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#d6262f';
-  ctx.fillRect(x - 0.8, y + 0.05, 1.6, 0.16);
-  // Двое в масках
-  for (const dx of [-0.35, 0.35]) {
-    ctx.fillStyle = '#444b55';
-    ctx.fillRect(x + dx - 0.2, y - 0.6, 0.4, 0.45);
-    ctx.fillStyle = '#d6262f';
-    ctx.fillRect(x + dx - 0.2, y - 0.5, 0.4, 0.1);
+  const flash = e.flash < 0.12;
+  ctx.fillStyle = 'rgba(230,245,255,0.55)';
+  for (let i = 0; i < 9; i++) {
+    const yy = y - 1.25 - i * 0.32, sp = 0.25 + i * 0.09;
+    ctx.fillRect(x - sp + Math.sin(time * 9 + i) * 0.05, yy, 0.16, 0.1);
+    ctx.fillRect(x + sp - 0.16 + Math.sin(time * 9 + i + 1) * 0.05, yy, 0.16, 0.1);
+  }
+  const hull = [[x - 0.85, y - 1.05], [x + 0.85, y - 1.05], [x + 0.85, y + 0.35], [x, y + 1.3], [x - 0.85, y + 0.35]];
+  fPath(ctx, hull); ctx.strokeStyle = '#08090b'; ctx.lineWidth = 0.14; ctx.stroke();
+  ctx.fillStyle = flash ? '#ffffff' : '#2b2f36'; ctx.fill();
+  fPath(ctx, [[x - 0.68, y - 0.9], [x + 0.68, y - 0.9], [x + 0.68, y + 0.3], [x, y + 1.08], [x - 0.68, y + 0.3]]);
+  ctx.fillStyle = flash ? '#ffffff' : '#3a3f48'; ctx.fill();
+  ctx.strokeStyle = '#d6262f'; ctx.lineWidth = 0.08;
+  ctx.beginPath(); ctx.moveTo(x - 0.78, y - 0.95); ctx.lineTo(x - 0.78, y + 0.33); ctx.lineTo(x, y + 1.18); ctx.lineTo(x + 0.78, y + 0.33); ctx.lineTo(x + 0.78, y - 0.95); ctx.stroke();
+  fPath(ctx, [[x - 0.6, y + 0.12], [x + 0.6, y + 0.12], [x + 0.36, y + 0.46], [x - 0.36, y + 0.46]]);
+  ctx.fillStyle = 'rgba(160,220,255,0.8)'; ctx.fill();
+  fR(ctx, x - 0.34, y - 1.36, 0.68, 0.38, '#111216');
+  fR(ctx, x - 0.34, y - 1.36, 0.68, 0.08, '#3a3e46');
+  fR(ctx, x - 0.34, y - 1.18, 0.68, 0.06, '#d6262f');
+  for (let i = 0; i < 4; i++) { const f = (time * 4 + i / 4) % 1; fR(ctx, x - 0.2 + i * 0.12, y - 1.45 - f * 0.4, 0.08, 0.08, `rgba(255,255,255,${1 - f})`); }
+  for (const [rx, ry] of [[x - 0.32, y - 0.38], [x + 0.3, y - 0.12]]) {
+    fE(ctx, rx, ry, 0.28, 0.28, '#0c0c0e');
+    fE(ctx, rx, ry, 0.23, 0.23, '#3a3f4a');
+    fE(ctx, rx, ry - 0.02, 0.15, 0.15, '#151515');
+    fR(ctx, rx - 0.23, ry + 0.02, 0.46, 0.08, '#c0202a');
   }
   if (e.throwT < 0.3) {
-    ctx.fillStyle = '#ff9a3d';
-    ctx.fillRect(x + 0.4, y - 0.95, 0.15, 0.15);
+    fR(ctx, x + 0.42, y - 0.52, 0.12, 0.38, '#3a3f4a');
+    fR(ctx, x + 0.42, y - 0.68, 0.1, 0.18, '#3f7f3a');
+    fR(ctx, x + 0.42, y - 0.8, 0.1, 0.12, Math.sin(time * 30) > 0 ? '#ffe14d' : '#ff7a1a');
   }
+  fR(ctx, x + 0.62, y - 1.3, 0.05, 0.45, '#a8b0b8');
+  const wv = Math.sin(time * 8) * 0.04;
+  fR(ctx, x + 0.67, y - 1.3 + wv, 0.42, 0.26, '#141414');
+  fR(ctx, x + 0.82, y - 1.24 + wv, 0.12, 0.1, '#f0f0f0');
+  if (e.frozen) frost(ctx, x, y, 1);
 }
 
 function drawBossMarks(ctx, view, time) {

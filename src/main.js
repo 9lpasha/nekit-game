@@ -1,11 +1,17 @@
 import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, DIFFICULTY, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut, hostThrow, hostRage } from './sim.js';
+import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut, hostThrow, hostRage, hostPause, hostMusic } from './sim.js';
 import { cutCues, skipButton, SKIP_HOLD } from './cutscene.js';
 import { loadProgress, saveProgress, shellsFor, perkCost, buyPerk, pickSkin, skinColor, mergePerks } from './progress.js';
-import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton, rageButton } from './render.js';
+import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton, rageButton, pauseButton } from './render.js';
 import { createInput } from './input.js';
 import { connect } from './net.js';
 import { sfx } from './sfx.js';
+import { TRACKS, createMusic } from './music.js';
+
+const music = createMusic();
+// Звук в браузере можно включить только после касания — заводим музыку при первом же нажатии
+document.addEventListener('pointerdown', () => { sfx.init(); music.start(); });
+document.addEventListener('keydown', () => { sfx.init(); music.start(); });
 
 const params = new URLSearchParams(location.search);
 const NET_MODE = params.get('net') === 'local' ? 'local' : 'p2p';
@@ -32,6 +38,10 @@ resize();
 
 // Тап по карте внизу экрана не должен превращаться в джойстик или удар.
 input.setHitTest((x, y) => {
+  if (G.role && G.view && G.view.ph === 'play' && !G.view.cut && !G.view.ch && !G.view.pz) {
+    const pb = pauseButton();
+    if (Math.hypot(x - pb.x, y - pb.y) < pb.r + 10) return 'pause';
+  }
   if (G.role && G.view?.cut) {
     // Во время кат-сцены работает только кнопка пропуска (её надо удерживать)
     const b = skipButton(cam);
@@ -87,7 +97,7 @@ const G = {
   me: null,
 };
 
-if (NET_MODE === 'local') window.__G = G; // для отладки в dev.html
+if (NET_MODE === 'local') { window.__G = G; window.__music = music; } // для отладки в dev.html
 
 function resetMe() {
   const p = START_POS[G.myKey];
@@ -154,6 +164,8 @@ function setupActions(room) {
     else if (d.c === 'skip') skipCut(G.state);
     else if (d.c === 'throw') hostThrow(G.state, 'g', d.dx || 0, d.dy || 0);
     else if (d.c === 'rage') hostRage(G.state, 'g');
+    else if (d.c === 'pause') hostPause(G.state, 'g', !!d.on);
+    else if (d.c === 'music') { hostMusic(G.state, d.track, d.muted); P.music = { ...G.state.music }; saveProgress(P); }
     else if (d.c === 'perks') {
       // Улучшения и раскраска гостя: берём лучшее из двух
       G.guestPerks = d.perks || {};
@@ -220,6 +232,7 @@ function gameOpts() {
   return {
     island: ISLAND,
     difficulty: P.difficulty, // сложность всегда хоста
+    music: { ...P.music },
     perks: duo ? mergePerks(P.perks, G.guestPerks) : P.perks,
     skins: { h: skinColor(P), g: duo ? G.guestSkin : '' },
   };
@@ -264,6 +277,7 @@ function restart() {
 
 function peerLost() {
   G.peerId = null;
+  if (G.state) G.state.pausedBy = null; // напарник ушёл — снимаем паузу
   if (G.role === 'host') {
     G.state.players.g = null;
     G.state.solo = true;
@@ -333,6 +347,7 @@ function handleCut(view, age, dt) {
 // ---------- Карты и сундук ----------
 function handleCards(view) {
   for (const i of input.takeCards()) {
+    if (i === 'pause') { setPause(true); continue; }
     if (i === 'rage') {
       if (view.ph === 'play') {
         if (G.role === 'guest') G.actions.cmd.send({ c: 'rage' }, G.peerId);
@@ -494,7 +509,7 @@ function frame(now) {
 
   if (G.role === 'host' || G.role === 'solo') {
     const s = G.state;
-    if (view.cut) input.clear(); else updateMe(dt, now, view, 0);
+    if (view.cut || view.pz) input.clear(); else updateMe(dt, now, view, 0);
     const p = s.players.h;
     p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy; p.steer = G.me.steer; p.full = G.me.full;
     acc += dt;
@@ -521,7 +536,7 @@ function frame(now) {
         G.overShown = false;
         show(null);
       }
-      if (view.cut) input.clear(); else updateMe(dt, now, view, age);
+      if (view.cut || view.pz) input.clear(); else updateMe(dt, now, view, age);
       if (now - G.lastSend >= SEND_EVERY) {
         G.lastSend = now;
         const r = (n) => Math.round(n * 1000) / 1000;
@@ -535,6 +550,11 @@ function frame(now) {
   if (view && G.role) handleCut(view, age, dt);
   if (view && G.role && !view.cut) handleCards(view);
   updateChest(view);
+  updatePause(view);
+  // Музыка: в игре — общая (от хоста), в меню — своя
+  const ms = G.role && view && view.mt != null ? { track: view.mt, muted: !!view.mu } : P.music;
+  music.apply(ms.track, ms.muted);
+  sfx.setMuted(ms.muted);
   if (view && (view.ph === 'over' || view.ph === 'win') && !G.overShown && G.role) gameOver(view);
   if (G.role) G.hint = Math.max(0, G.hint - dt);
 
@@ -605,11 +625,80 @@ function renderShop() {
 }
 $('btn-shop').onclick = () => { sfx.init(); renderShop(); show('shop'); };
 
-// ---------- Настройки: уровень сложности ----------
+// ---------- Музыка и пауза (у всех игроков) ----------
+function currentMusic() {
+  return G.role && G.view && G.view.mt != null ? { track: G.view.mt, muted: !!G.view.mu } : P.music;
+}
+
+// Сменить трек или включить/выключить звук. В игре — у всех (через хоста), в меню — только у себя.
+function setMusic(track, muted) {
+  if (G.role === 'guest') { G.actions.cmd.send({ c: 'music', track, muted }, G.peerId); return; }
+  if (G.role && G.state) { hostMusic(G.state, track, muted); P.music = { ...G.state.music }; }
+  else P.music = { track: track ?? P.music.track, muted: muted ?? P.music.muted };
+  saveProgress(P);
+}
+
+function setPause(on) {
+  if (G.role === 'guest') G.actions.cmd.send({ c: 'pause', on }, G.peerId);
+  else if (G.state) hostPause(G.state, 'h', on);
+}
+
+// Кнопки музыки: «◀ трек ▶» и «звук вкл/выкл»
+function renderMusic(box, shared) {
+  const m = currentMusic();
+  box.innerHTML = '';
+  const row = document.createElement('div');
+  row.className = 'track-row';
+  const prev = document.createElement('button');
+  prev.className = 'btn small'; prev.textContent = '◀';
+  const redraw = () => { if (!G.role) renderMusic(box, shared); }; // в меню перерисовываем сразу, в игре — по снимку
+  prev.onclick = () => { setMusic((m.track + TRACKS.length - 1) % TRACKS.length, undefined); redraw(); };
+  const name = document.createElement('div');
+  name.className = 'track-name';
+  name.textContent = '♪ ' + TRACKS[m.track % TRACKS.length].title;
+  const next = document.createElement('button');
+  next.className = 'btn small'; next.textContent = '▶';
+  next.onclick = () => { setMusic((m.track + 1) % TRACKS.length, undefined); redraw(); };
+  row.append(prev, name, next);
+  const mute = document.createElement('button');
+  mute.className = 'btn ' + (m.muted ? 'ghost' : 'primary');
+  mute.textContent = (m.muted ? '🔇 Звук: ВЫКЛ' : '🔊 Звук: ВКЛ') + (shared ? ' (у всех)' : '');
+  mute.onclick = () => { setMusic(undefined, !m.muted); redraw(); };
+  box.append(row, mute);
+}
+
+// Меню паузы: продолжить, музыка, звук, сложность, выход
+let pauseKey = '';
+function updatePause(view) {
+  const box = $('pause');
+  const on = G.role && view && view.ph === 'play' && view.pz;
+  if (!on) {
+    if (!box.classList.contains('hidden')) box.classList.add('hidden');
+    pauseKey = '';
+    return;
+  }
+  const key = [view.pz, view.mt, view.mu, P.difficulty, view.df].join('|');
+  if (key === pauseKey) return;
+  pauseKey = key;
+  $('pause-who').textContent = view.pz === G.myKey ? 'Ты поставил паузу' : 'Напарник поставил паузу';
+  renderMusic($('pause-music'), G.role !== 'solo');
+  renderDifficulty($('pause-difficulty'));
+  $('pause-diff-note').textContent = `Сейчас: ${DIFFICULTY[view.df]?.name || '—'}. Новая включится со следующего заплыва`
+    + (G.role === 'solo' ? '.' : ', вдвоём действует сложность хоста.');
+  box.classList.remove('hidden');
+}
+$('pause-resume').onclick = () => setPause(false);
+$('pause-menu').onclick = () => { $('pause').classList.add('hidden'); toMenu(); };
+
+// ---------- Настройки: уровень сложности и музыка ----------
 function updateSettingsButton() { $('btn-settings').textContent = `Настройки · ${DIFFICULTY[P.difficulty].name}`; }
 
 function renderSettings() {
-  const list = $('difficulty-list');
+  renderDifficulty($('difficulty-list'));
+  renderMusic($('settings-music'), false);
+}
+
+function renderDifficulty(list) {
   list.innerHTML = '';
   for (const [id, d] of Object.entries(DIFFICULTY)) {
     const b = document.createElement('button');
@@ -623,7 +712,7 @@ function renderSettings() {
       P.difficulty = id;
       saveProgress(P);
       sfx.event({ type: 'card' });
-      renderSettings();
+      renderDifficulty(list);
       updateSettingsButton();
     };
     list.appendChild(b);

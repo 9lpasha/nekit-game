@@ -1392,6 +1392,20 @@ function outlined(ctx, str, x, y, size, color, align = 'center') {
   ctx.fillText(str, x, y);
 }
 
+// Кнопка паузы в левом верхнем углу
+export function pauseButton() { return { x: 26, y: 24, r: 15 }; }
+function drawPauseButton(ctx, cam, paused) {
+  const b = pauseButton();
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  roundRect(ctx, b.x - b.r + 2, b.y - b.r + 3, b.r * 2, b.r * 2, 6); ctx.fill();
+  ctx.fillStyle = paused ? '#ffe14d' : '#e0c08a';
+  roundRect(ctx, b.x - b.r, b.y - b.r, b.r * 2, b.r * 2, 6); ctx.fill();
+  ctx.strokeStyle = '#1e1207'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#1e1207';
+  ctx.fillRect(b.x - 6, b.y - 7, 4, 14);
+  ctx.fillRect(b.x + 2, b.y - 7, 4, 14);
+}
+
 function drawHud(ctx, cam, view, hud, joy) {
   const W = cam.w;
   const pad = 14;
@@ -1443,7 +1457,8 @@ function drawHud(ctx, cam, view, hud, joy) {
   if (view.no != null) drawNoiseMeter(ctx, W / 2, iy, view.no, view.fs);
   if (holes) outlined(ctx, 'ДЫР: ' + holes, W - pad, iy, sz * 0.75, '#ff9a7a', 'right');
 
-  outlined(ctx, 'ВОЛНА ' + Math.max(1, view.w), pad, pad + sz, sz * 0.8, '#bfe6ff', 'left');
+  drawPauseButton(ctx, cam, view.pz);
+  outlined(ctx, 'ВОЛНА ' + Math.max(1, view.w), pad + 34, pad + sz, sz * 0.8, '#bfe6ff', 'left');
   outlined(ctx, String(view.sc), W - pad, pad + sz, sz * 0.9, '#ffe14d', 'right');
 
   // Счётчик розыгрыша, пока пас в воздухе

@@ -59,6 +59,8 @@ export function createState(solo, opts = {}) {
   initCards(s);
   initBoss(s);
   initExtras(s);
+  s.music = { track: opts.music?.track ?? 0, muted: !!opts.music?.muted }; // общая музыка: трек и «звук выкл» у всех
+  s.pausedBy = null; // кто поставил паузу (пауза у всех)
   Object.assign(s, { nitro: 0, nitroT: 0, nitroReq: {}, leakMul: 1, perks: {}, arrived: false });
   s.cut = opts.noIntro ? null : { id: 'intro', t: 0 }; // вступительная кат-сцена
   applyPerks(s, opts.perks || {});
@@ -394,6 +396,19 @@ export function skipCut(s) {
   if (s.cut) s.cut.t = CUT_TIME[s.cut.id];
 }
 
+// Пауза у всех: нельзя ставить во время кат-сцены и сундука
+export function hostPause(s, key, on) {
+  if (on && (s.phase !== 'play' || s.cut || s.chest || s.pausedBy)) return;
+  if (!on && !s.pausedBy) return;
+  s.pausedBy = on ? key : null;
+  emit(s, 'pause', { on, key });
+}
+
+export function hostMusic(s, track, muted) {
+  if (Number.isInteger(track)) s.music.track = track;
+  if (typeof muted === 'boolean') s.music.muted = muted;
+}
+
 export function hostThrow(s, key, dx, dy) { requestThrow(s, key, dx, dy, (type, data) => emit(s, type, data)); }
 export function hostRage(s, key) { requestRage(s, key, (type, data) => emit(s, type, data)); }
 
@@ -401,6 +416,7 @@ export function hostPlayCard(s, key, i, id) { return playCard(s, key, i, id, car
 export function hostPickChest(s, k, key) { pickChest(s, k, key, cardHooks(s)); }
 
 export function step(s, dt) {
+  if (s.pausedBy && s.phase === 'play') return; // пауза у всех: даже часы игры стоят
   s.t += dt;
   if (s.bannerT > 0) s.bannerT -= dt;
   if (s.phase !== 'play') return;
@@ -579,6 +595,9 @@ export function snapshot(s) {
     nT: s.nitroT,
     nr: Object.entries(s.nitroReq).filter(([, t]) => s.t - t <= NITRO_SYNC).map(([k]) => k),
     rs: s.resets,
+    mt: s.music.track,
+    mu: s.music.muted ? 1 : 0,
+    pz: s.pausedBy || '',
     df: s.diff,
     cut: s.cut ? [s.cut.id, s.cut.t] : null,
     ...snapshotVoyage(s),

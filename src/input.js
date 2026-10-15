@@ -70,6 +70,7 @@ export function createInput(canvas) {
     if (digit >= 0 && !e.repeat) cards.push(digit);
     if (e.code === 'KeyN' && !e.repeat) cards.push('nitro');
     if (e.code === 'KeyR' && !e.repeat) cards.push('rage');
+    if ((e.code === 'KeyP' || e.code === 'Escape') && !e.repeat) cards.push('pause');
     if (e.code === 'KeyQ' && !e.repeat) swings.push({ type: 'throw' });
   });
   addEventListener('keyup', (e) => keys.delete(e.code));

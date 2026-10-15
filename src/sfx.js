@@ -1,9 +1,10 @@
 // Простые 8-битные звуки на WebAudio — без файлов.
 let ac = null;
+let muted = false; // «звук выкл» — глушит и эффекты
 let noiseBuf = null;
 
 function tone(freq, dur, type = 'square', vol = 0.06, slide = 0, delay = 0) {
-  if (!ac) return;
+  if (!ac || muted) return;
   const t0 = ac.currentTime + delay;
   const o = ac.createOscillator();
   const g = ac.createGain();
@@ -18,7 +19,7 @@ function tone(freq, dur, type = 'square', vol = 0.06, slide = 0, delay = 0) {
 }
 
 function noise(dur, vol = 0.08) {
-  if (!ac) return;
+  if (!ac || muted) return;
   if (!noiseBuf) {
     noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
     const d = noiseBuf.getChannelData(0);
@@ -40,6 +41,7 @@ function noise(dur, vol = 0.08) {
 const vibrate = (ms) => { try { navigator.vibrate?.(ms); } catch {} };
 
 export const sfx = {
+  setMuted(m) { muted = m; },
   init() {
     try {
       if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();

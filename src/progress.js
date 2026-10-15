@@ -14,6 +14,7 @@ export function loadProgress() {
     skin: p?.skin || 0,
     best: p?.best || 0,
     difficulty: DIFFICULTY[p?.difficulty] ? p.difficulty : 'normal',
+    music: { track: p?.music?.track ?? 0, muted: !!p?.music?.muted },
   };
 }
 

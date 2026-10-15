@@ -7,8 +7,8 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 export const BOSS_KINDS = {
-  serpent: { name: 'Морской змей', hp: 30, size: 1.1, score: 300 },
-  giant: { name: 'Каменный великан', hp: 45, size: 1.3, score: 500 },
+  serpent: { name: 'Мировой змей', hp: 30, size: 1.1, score: 300 },
+  giant: { name: 'Колосс', hp: 45, size: 1.3, score: 500 },
   raider: { name: 'Катер рейдеров', hp: 25, size: 1.0, score: 400 },
 };
 

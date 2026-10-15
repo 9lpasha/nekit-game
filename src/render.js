@@ -609,77 +609,116 @@ function drawCardBar(ctx, cam, view, hud) {
 }
 
 // ---------- Боссы, рейдеры, нитро ----------
-const BOSS_NAMES = { serpent: 'МОРСКОЙ ЗМЕЙ', giant: 'КАМЕННЫЙ ВЕЛИКАН', raider: 'КАТЕР РЕЙДЕРОВ' };
+const BOSS_NAMES = { serpent: 'МИРОВОЙ ЗМЕЙ', giant: 'КОЛОСС', raider: 'КАТЕР РЕЙДЕРОВ' };
 
+// Мировой змей (вид сверху): сине-серая чешуя, светлое брюхо, костяные рога и шипы, янтарные глаза.
 function drawSerpent(ctx, e, time) {
   const { x, y } = e;
   if (e.under) {
-    // Под водой видна только тень и рябь
+    // Под водой видна только огромная тень и рябь
     ctx.fillStyle = 'rgba(5,30,50,0.45)';
-    ctx.beginPath(); ctx.ellipse(x, y, 1.3, 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x, y, 1.6, 0.7, 0, 0, Math.PI * 2); ctx.fill();
     ctx.strokeStyle = 'rgba(200,235,255,0.4)';
     ctx.lineWidth = 0.06;
-    ctx.beginPath(); ctx.arc(x, y, 0.9 + (time % 1) * 0.6, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 0.9 + (time % 1) * 0.7, 0, Math.PI * 2); ctx.stroke();
     return;
   }
-  const side = x < WORLD_W / 2 ? -1 : 1; // тело уходит в сторону от лодки
-  const body = e.flash < 0.12 ? '#ffffff' : '#2f9e8f';
-  // Горбы тела из воды
+  const side = x < WORLD_W / 2 ? -1 : 1; // тело уходит от лодки
+  const flash = e.flash < 0.12;
+  const scale = flash ? '#ffffff' : '#3b5e63', scale2 = '#456b70', belly = '#8fa89a', bone = '#d9cfb0';
+  // Кольца тела из воды
   for (let i = 3; i >= 1; i--) {
-    const hx = x + side * i * 0.9, hy = y + Math.sin(time * 3 + i) * 0.15 + i * 0.25;
+    const hx = x + side * i * 0.95, hy = y + Math.sin(time * 3 + i) * 0.15 + i * 0.28;
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
-    ctx.fillRect(hx - 0.4, hy + 0.2, 0.8, 0.25);
-    ctx.fillStyle = i % 2 ? '#277f73' : body;
-    ctx.fillRect(hx - 0.4, hy - 0.35, 0.8, 0.55);
-    ctx.fillStyle = '#e0c25a';
-    ctx.fillRect(hx - 0.3, hy - 0.42, 0.18, 0.12);
-    ctx.fillRect(hx + 0.08, hy - 0.42, 0.18, 0.12);
+    ctx.fillRect(hx - 0.45, hy + 0.22, 0.9, 0.25);
+    ctx.fillStyle = i % 2 ? scale2 : scale;
+    ctx.fillRect(hx - 0.45, hy - 0.38, 0.9, 0.6);
+    ctx.fillStyle = belly;
+    ctx.fillRect(hx - 0.45, hy + 0.1, 0.9, 0.12);
+    ctx.fillStyle = bone;
+    ctx.fillRect(hx - 0.08, hy - 0.52, 0.16, 0.16);
   }
   // Голова
-  ctx.fillStyle = body;
-  ctx.fillRect(x - 0.65, y - 0.7, 1.3, 1.1);
-  ctx.fillStyle = '#227066';
-  ctx.fillRect(x - 0.65, y + 0.2, 1.3, 0.25);
-  ctx.fillStyle = '#ffe14d';
-  ctx.fillRect(x - 0.45, y - 0.45, 0.25, 0.22);
-  ctx.fillRect(x + 0.2, y - 0.45, 0.25, 0.22);
-  ctx.fillStyle = '#111';
-  ctx.fillRect(x - 0.36, y - 0.42, 0.08, 0.16);
-  ctx.fillRect(x + 0.29, y - 0.42, 0.08, 0.16);
-  ctx.fillStyle = '#ffffff'; // клыки
-  ctx.fillRect(x - 0.35, y + 0.4, 0.1, 0.2);
-  ctx.fillRect(x + 0.25, y + 0.4, 0.1, 0.2);
+  ctx.fillStyle = scale;
+  ctx.fillRect(x - 0.75, y - 0.75, 1.5, 1.2);
+  ctx.fillStyle = scale2;
+  ctx.fillRect(x - 0.75, y - 0.75, 1.5, 0.2);
+  ctx.fillStyle = '#2c4a4f';
+  ctx.fillRect(x - 0.75, y + 0.2, 1.5, 0.28);
+  // Рога назад и шипы
+  ctx.fillStyle = bone;
+  ctx.fillRect(x - 0.7, y - 1.05, 0.22, 0.35);
+  ctx.fillRect(x - 0.85, y - 1.2, 0.3, 0.18);
+  ctx.fillRect(x + 0.48, y - 1.05, 0.22, 0.35);
+  ctx.fillRect(x + 0.55, y - 1.2, 0.3, 0.18);
+  for (let i = 0; i < 4; i++) ctx.fillRect(x - 0.6 + i * 0.38, y + 0.46, 0.14, 0.18);
+  // Светящиеся глаза
+  ctx.fillStyle = 'rgba(255,170,40,0.35)';
+  ctx.fillRect(x - 0.55, y - 0.5, 0.42, 0.34);
+  ctx.fillRect(x + 0.13, y - 0.5, 0.42, 0.34);
+  ctx.fillStyle = '#ffb32b';
+  ctx.fillRect(x - 0.5, y - 0.45, 0.3, 0.22);
+  ctx.fillRect(x + 0.2, y - 0.45, 0.3, 0.22);
+  ctx.fillStyle = '#1a0a00';
+  ctx.fillRect(x - 0.38, y - 0.45, 0.07, 0.22);
+  ctx.fillRect(x + 0.32, y - 0.45, 0.07, 0.22);
+  // Пасть с клыками, когда плюётся
   if (e.throwT < 0.4) {
+    ctx.fillStyle = '#4a0c14';
+    ctx.fillRect(x - 0.35, y + 0.45, 0.7, 0.3);
+    ctx.fillStyle = '#f4efe0';
+    ctx.fillRect(x - 0.3, y + 0.45, 0.1, 0.14);
+    ctx.fillRect(x + 0.2, y + 0.45, 0.1, 0.14);
     ctx.fillStyle = '#9dff3d';
-    ctx.fillRect(x - 0.15, y + 0.45, 0.3, 0.25);
+    ctx.fillRect(x - 0.12, y + 0.6, 0.24, 0.2);
   }
 }
 
+// Колосс (вид сверху): по пояс в воде, красные мышцы, оскал из зубов, вокруг клубится пар.
 function drawGiant(ctx, e, time) {
   const { x, y } = e;
-  // Скала, на которой он стоит
-  ctx.fillStyle = 'rgba(0,0,0,0.3)';
-  ctx.fillRect(x - 1.6, y + 0.4, 3.4, 1.1);
-  ctx.fillStyle = '#5d646c';
-  ctx.fillRect(x - 1.7, y + 0.2, 3.4, 1.0);
-  ctx.fillStyle = '#767e87';
-  ctx.fillRect(x - 1.2, y, 2.4, 0.5);
-  // Тело из каменных блоков
-  const c = e.flash < 0.12 ? '#ffffff' : '#8b939c';
+  const flash = e.flash < 0.12;
+  const muscle = flash ? '#ffffff' : '#b23a2e', fiber = '#e0705a', deep = '#7a2018';
+  // Вода вокруг пояса
+  ctx.strokeStyle = 'rgba(230,245,255,0.5)';
+  ctx.lineWidth = 0.08;
+  ctx.beginPath(); ctx.ellipse(x, y + 0.6, 1.7 + Math.sin(time * 3) * 0.05, 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+  // Руки (поднимает, когда бросает)
   const arm = e.throwT < 0.5 ? -0.7 : 0;
-  ctx.fillStyle = '#6f7780';
-  ctx.fillRect(x - 1.25, y - 1.1 + arm, 0.45, 1.0);
-  ctx.fillRect(x + 0.8, y - 1.1 + arm, 0.45, 1.0);
-  ctx.fillStyle = c;
-  ctx.fillRect(x - 0.8, y - 1.3, 1.6, 1.4);
-  ctx.fillStyle = '#a3abb3';
-  ctx.fillRect(x - 0.55, y - 2.1, 1.1, 0.85);
-  ctx.fillStyle = `rgba(255,${120 + Math.sin(time * 6) * 60},40,1)`; // горящие глаза
-  ctx.fillRect(x - 0.38, y - 1.85, 0.22, 0.14);
-  ctx.fillRect(x + 0.16, y - 1.85, 0.22, 0.14);
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(x - 0.8, y - 0.5, 1.6, 0.12);
-  ctx.fillRect(x - 0.1, y - 1.3, 0.12, 1.4);
+  ctx.fillStyle = muscle;
+  ctx.fillRect(x - 1.35, y - 1.1 + arm, 0.45, 1.3);
+  ctx.fillRect(x + 0.9, y - 1.1 + arm, 0.45, 1.3);
+  // Торс
+  ctx.fillRect(x - 0.9, y - 1.3, 1.8, 1.8);
+  ctx.fillStyle = fiber;
+  ctx.fillRect(x - 0.75, y - 1.15, 0.65, 0.5);
+  ctx.fillRect(x + 0.1, y - 1.15, 0.65, 0.5);
+  ctx.fillStyle = deep;
+  ctx.fillRect(x - 0.03, y - 1.15, 0.06, 1.5);
+  ctx.fillRect(x - 0.9, y - 1.3, 1.8, 0.12);
+  // Голова-череп с оскалом
+  ctx.fillStyle = muscle;
+  ctx.fillRect(x - 0.55, y - 2.25, 1.1, 1.0);
+  ctx.fillStyle = '#1a1210';
+  for (let i = 0; i < 4; i++) ctx.fillRect(x - 0.5 + i * 0.3, y - 2.35, 0.12, 0.14);
+  ctx.fillStyle = '#1a0a08';
+  ctx.fillRect(x - 0.38, y - 2.0, 0.22, 0.14);
+  ctx.fillRect(x + 0.16, y - 2.0, 0.22, 0.14);
+  ctx.fillStyle = deep;
+  ctx.fillRect(x - 0.45, y - 1.62, 0.9, 0.3);
+  ctx.fillStyle = '#f2ead8';
+  for (let i = 0; i < 5; i++) {
+    ctx.fillRect(x - 0.42 + i * 0.18, y - 1.61, 0.12, 0.12);
+    ctx.fillRect(x - 0.42 + i * 0.18, y - 1.45, 0.12, 0.12);
+  }
+  // Пар
+  for (let i = 0; i < 7; i++) {
+    const f = (time * 0.7 + i / 7) % 1;
+    const px = x + Math.sin(i * 2.3) * 1.2;
+    const py = y - 1 - f * 1.8;
+    ctx.fillStyle = `rgba(235,235,235,${0.35 * (1 - f)})`;
+    ctx.beginPath(); ctx.arc(px, py, 0.2 + f * 0.45, 0, Math.PI * 2); ctx.fill();
+  }
 }
 
 function drawRaider(ctx, e, time) {

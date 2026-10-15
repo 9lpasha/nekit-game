@@ -1,7 +1,7 @@
 // Карты, эликсир и сундуки (как в Clash Royale, но колода общая на двоих).
 // Считает только хост; гость присылает «сыграл карту i» и «выбрал награду k».
 import {
-  BOAT, CARDS, START_DECK, ELIXIR_MAX, ELIXIR_RATE, START_ELIXIR, HAND_SIZE, MAX_CARD_LEVEL, dist,
+  BOAT, CARDS, START_DECK, ELIXIR_MAX, ELIXIR_RATE, START_ELIXIR, HAND_SIZE, MAX_CARD_LEVEL, NITRO_MAX, dist,
 } from './const.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -45,6 +45,7 @@ export function updateCards(s, dt, hooks) {
     if (t.cd > 0) continue;
     let target = null, bd = 9;
     for (const e of s.enemies) {
+      if (e.under) continue;
       const d = dist(t.x, t.y, e.x, e.y);
       if (d < bd) { bd = d; target = e; }
     }
@@ -88,6 +89,7 @@ export function playCard(s, key, i, id, hooks) {
       // Цель — враг, у которого больше всего соседей в радиусе взрыва
       let best = null, bn = -1;
       for (const e of s.enemies) {
+        if (e.under) continue;
         const n = s.enemies.filter((o) => dist(o.x, o.y, e.x, e.y) < 2.3).length;
         if (n > bn) { bn = n; best = e; }
       }
@@ -120,7 +122,9 @@ export function openChest(s) {
   }
   shuffle(pool);
   const options = pool.slice(0, 2);
-  options.push(Math.random() < 0.5 ? { type: 'planks', n: 3 } : { type: 'elixir' });
+  const extra = [{ type: 'planks', n: 3 }, { type: 'elixir' }];
+  if (s.nitro < NITRO_MAX && Math.random() < 0.35) extra.push({ type: 'nitro' }); // нитро в сундуке — редкость
+  options.push(extra[Math.floor(Math.random() * extra.length)]);
   shuffle(options);
   s.chest = { options, t: CHEST_TIME };
 }
@@ -135,6 +139,7 @@ export function pickChest(s, k, key, hooks) {
   } else if (o.type === 'up') s.levels[o.id]++;
   else if (o.type === 'planks') hooks.addPlanks(o.n);
   else if (o.type === 'elixir') s.elixir = ELIXIR_MAX;
+  else if (o.type === 'nitro') s.nitro = Math.min(NITRO_MAX, s.nitro + 1);
   s.chest = null;
   hooks.emit('chest', { title, key });
 }
@@ -146,6 +151,7 @@ function optionText(s, o) {
     return { icon: CARDS[o.id].icon, title: `${CARDS[o.id].name} ${'★'.repeat(l)}`, desc: CARDS[o.id].desc(l) };
   }
   if (o.type === 'planks') return { icon: '🪵', title: `+${o.n} доски`, desc: 'Сразу в запас' };
+  if (o.type === 'nitro') return { icon: '🚀', title: '+1 нитро', desc: 'Жмите N₂O вдвоём — и в отрыв' };
   return { icon: '💧', title: 'Полный эликсир', desc: 'Шкала эликсира до краёв' };
 }
 

@@ -62,7 +62,7 @@ export function applyEvent(fx, ev) {
     case 'loot':
       burst(fx, ev.x, ev.y, '#d9a46a', 10, 3, 0.09, 0.5);
       ring(fx, ev.x, ev.y, '#ffe14d', 0.8, 0.3);
-      text(fx, ev.x, ev.y - 0.5, '+1 ДОСКА', '#ffe14d', 0.28);
+      text(fx, ev.x, ev.y - 0.5, ev.nitro ? '+1 НИТРО' : '+1 ДОСКА', ev.nitro ? '#9fe8ff' : '#ffe14d', 0.28);
       break;
     case 'splash':
       burst(fx, ev.x, ev.y, '#a8dcff', 9, 2.5, 0.07, 0.45);
@@ -116,6 +116,39 @@ export function applyEvent(fx, ev) {
       break;
     case 'chest':
       text(fx, BOAT.x + BOAT.w / 2, BOAT.y + 4, ev.title, '#ffe14d', 0.3, 1.8);
+      break;
+    case 'boss':
+      fx.shake = Math.max(fx.shake, 0.6);
+      break;
+    case 'bossdown':
+      burst(fx, BOAT.x + BOAT.w / 2, 4, '#ffe14d', 40, 7, 0.14, 1);
+      burst(fx, BOAT.x + BOAT.w / 2, 4, '#ff3d5a', 30, 6, 0.12, 1);
+      fx.shake = Math.max(fx.shake, 0.6);
+      break;
+    case 'slam':
+      burst(fx, ev.x, ev.y, '#8a5a2b', 12, 3.5, 0.11, 0.6);
+      burst(fx, ev.x, ev.y, '#a8dcff', 6, 2.5, 0.07, 0.5);
+      fx.shake = Math.max(fx.shake, 0.35);
+      break;
+    case 'roar':
+      text(fx, ev.x, ev.y - 1.2, 'РРРР!', '#ff9a7a', 0.34, 1);
+      break;
+    case 'stomp':
+      ring(fx, ev.x, ev.y, '#d7f0ff', 3, 0.6);
+      text(fx, BOAT.x + BOAT.w / 2, BOAT.y + 3, 'ВОЛНА!', '#bfe6ff', 0.34, 1);
+      fx.shake = Math.max(fx.shake, 0.6);
+      break;
+    case 'nitro':
+      text(fx, BOAT.x + BOAT.w / 2, BOAT.y + 1, 'МЫ — СЕМЬЯ! НИТРО!', '#ffb13d', 0.36, 1.6);
+      burst(fx, BOAT.x + BOAT.w / 2, BOAT.y + BOAT.h, '#ffb13d', 30, 6, 0.12, 0.8);
+      fx.shake = Math.max(fx.shake, 0.4);
+      break;
+    case 'rocksmash':
+      burst(fx, ev.x, ev.y, '#868e97', 20, 5, 0.12, 0.6);
+      text(fx, ev.x, ev.y - 0.5, 'В ЩЕПКИ!', '#ffb13d', 0.3);
+      break;
+    case 'chase':
+      fx.shake = Math.max(fx.shake, 0.4);
       break;
     case 'throw':
       burst(fx, ev.x, ev.y, '#d7f0ff', 4, 1.5, 0.06, 0.3);
@@ -289,6 +322,22 @@ function drawBoat(ctx, view, time) {
 function drawDebris(ctx, d, time) {
   const bob = Math.sin(time * 3 + d.id) * 0.05;
   const x = d.x, y = d.y + bob;
+  if (d.nitro) {
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(x - 0.12, y - 0.2, 0.34, 0.6);
+    ctx.fillStyle = '#2f6fd6';
+    ctx.fillRect(x - 0.18, y - 0.3, 0.36, 0.6);
+    ctx.fillStyle = '#c0c8d0';
+    ctx.fillRect(x - 0.08, y - 0.42, 0.16, 0.12);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - 0.1, y - 0.12, 0.2, 0.08);
+    ctx.globalAlpha = 0.5 + 0.3 * Math.sin(time * 8 + d.id);
+    ctx.strokeStyle = '#9fe8ff';
+    ctx.lineWidth = 0.05;
+    ctx.beginPath(); ctx.arc(x, y, 0.55, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+    return;
+  }
   ctx.save();
   ctx.translate(x, y);
   ctx.rotate(Math.sin(time * 1.3 + d.id) * 0.25);
@@ -558,6 +607,181 @@ function drawCardBar(ctx, cam, view, hud) {
   }
 }
 
+// ---------- Боссы, рейдеры, нитро ----------
+const BOSS_NAMES = { serpent: 'МОРСКОЙ ЗМЕЙ', giant: 'КАМЕННЫЙ ВЕЛИКАН', raider: 'КАТЕР РЕЙДЕРОВ' };
+
+function drawSerpent(ctx, e, time) {
+  const { x, y } = e;
+  if (e.under) {
+    // Под водой видна только тень и рябь
+    ctx.fillStyle = 'rgba(5,30,50,0.45)';
+    ctx.beginPath(); ctx.ellipse(x, y, 1.3, 0.6, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,235,255,0.4)';
+    ctx.lineWidth = 0.06;
+    ctx.beginPath(); ctx.arc(x, y, 0.9 + (time % 1) * 0.6, 0, Math.PI * 2); ctx.stroke();
+    return;
+  }
+  const side = x < WORLD_W / 2 ? -1 : 1; // тело уходит в сторону от лодки
+  const body = e.flash < 0.12 ? '#ffffff' : '#2f9e8f';
+  // Горбы тела из воды
+  for (let i = 3; i >= 1; i--) {
+    const hx = x + side * i * 0.9, hy = y + Math.sin(time * 3 + i) * 0.15 + i * 0.25;
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(hx - 0.4, hy + 0.2, 0.8, 0.25);
+    ctx.fillStyle = i % 2 ? '#277f73' : body;
+    ctx.fillRect(hx - 0.4, hy - 0.35, 0.8, 0.55);
+    ctx.fillStyle = '#e0c25a';
+    ctx.fillRect(hx - 0.3, hy - 0.42, 0.18, 0.12);
+    ctx.fillRect(hx + 0.08, hy - 0.42, 0.18, 0.12);
+  }
+  // Голова
+  ctx.fillStyle = body;
+  ctx.fillRect(x - 0.65, y - 0.7, 1.3, 1.1);
+  ctx.fillStyle = '#227066';
+  ctx.fillRect(x - 0.65, y + 0.2, 1.3, 0.25);
+  ctx.fillStyle = '#ffe14d';
+  ctx.fillRect(x - 0.45, y - 0.45, 0.25, 0.22);
+  ctx.fillRect(x + 0.2, y - 0.45, 0.25, 0.22);
+  ctx.fillStyle = '#111';
+  ctx.fillRect(x - 0.36, y - 0.42, 0.08, 0.16);
+  ctx.fillRect(x + 0.29, y - 0.42, 0.08, 0.16);
+  ctx.fillStyle = '#ffffff'; // клыки
+  ctx.fillRect(x - 0.35, y + 0.4, 0.1, 0.2);
+  ctx.fillRect(x + 0.25, y + 0.4, 0.1, 0.2);
+  if (e.throwT < 0.4) {
+    ctx.fillStyle = '#9dff3d';
+    ctx.fillRect(x - 0.15, y + 0.45, 0.3, 0.25);
+  }
+}
+
+function drawGiant(ctx, e, time) {
+  const { x, y } = e;
+  // Скала, на которой он стоит
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(x - 1.6, y + 0.4, 3.4, 1.1);
+  ctx.fillStyle = '#5d646c';
+  ctx.fillRect(x - 1.7, y + 0.2, 3.4, 1.0);
+  ctx.fillStyle = '#767e87';
+  ctx.fillRect(x - 1.2, y, 2.4, 0.5);
+  // Тело из каменных блоков
+  const c = e.flash < 0.12 ? '#ffffff' : '#8b939c';
+  const arm = e.throwT < 0.5 ? -0.7 : 0;
+  ctx.fillStyle = '#6f7780';
+  ctx.fillRect(x - 1.25, y - 1.1 + arm, 0.45, 1.0);
+  ctx.fillRect(x + 0.8, y - 1.1 + arm, 0.45, 1.0);
+  ctx.fillStyle = c;
+  ctx.fillRect(x - 0.8, y - 1.3, 1.6, 1.4);
+  ctx.fillStyle = '#a3abb3';
+  ctx.fillRect(x - 0.55, y - 2.1, 1.1, 0.85);
+  ctx.fillStyle = `rgba(255,${120 + Math.sin(time * 6) * 60},40,1)`; // горящие глаза
+  ctx.fillRect(x - 0.38, y - 1.85, 0.22, 0.14);
+  ctx.fillRect(x + 0.16, y - 1.85, 0.22, 0.14);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(x - 0.8, y - 0.5, 1.6, 0.12);
+  ctx.fillRect(x - 0.1, y - 1.3, 0.12, 1.4);
+}
+
+function drawRaider(ctx, e, time) {
+  const { x, y } = e;
+  // Пенный след
+  ctx.fillStyle = 'rgba(230,245,255,0.5)';
+  for (let i = 0; i < 6; i++) ctx.fillRect(x - 0.3 + Math.sin(time * 8 + i) * 0.2, y - 1 - i * 0.35, 0.6 - i * 0.06, 0.15);
+  // Корпус катера носом к лодке
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(x - 0.75, y - 0.7, 1.6, 1.7);
+  ctx.fillStyle = e.flash < 0.12 ? '#ffffff' : '#2b2f36';
+  ctx.beginPath();
+  ctx.moveTo(x - 0.8, y - 0.9); ctx.lineTo(x + 0.8, y - 0.9); ctx.lineTo(x + 0.8, y + 0.4); ctx.lineTo(x, y + 1.1); ctx.lineTo(x - 0.8, y + 0.4);
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#d6262f';
+  ctx.fillRect(x - 0.8, y + 0.05, 1.6, 0.16);
+  // Двое в масках
+  for (const dx of [-0.35, 0.35]) {
+    ctx.fillStyle = '#444b55';
+    ctx.fillRect(x + dx - 0.2, y - 0.6, 0.4, 0.45);
+    ctx.fillStyle = '#d6262f';
+    ctx.fillRect(x + dx - 0.2, y - 0.5, 0.4, 0.1);
+  }
+  if (e.throwT < 0.3) {
+    ctx.fillStyle = '#ff9a3d';
+    ctx.fillRect(x + 0.4, y - 0.95, 0.15, 0.15);
+  }
+}
+
+function drawBossMarks(ctx, view, time) {
+  for (const [col, row, t, max] of view.BM || []) {
+    const x = BOAT.x + col, y = BOAT.y + row;
+    const k = 1 - t / max;
+    ctx.fillStyle = `rgba(255,40,40,${0.25 + 0.25 * Math.abs(Math.sin(time * 10))})`;
+    ctx.fillRect(x + 0.05, y + 0.05, 0.9, 0.9);
+    ctx.fillStyle = 'rgba(255,40,40,0.6)';
+    ctx.fillRect(x + 0.05, y + 0.95 - 0.9 * k, 0.9, 0.9 * k);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x + 0.45, y + 0.2, 0.1, 0.38);
+    ctx.fillRect(x + 0.45, y + 0.68, 0.1, 0.1);
+  }
+}
+
+function drawNitroFlames(ctx, view, time) {
+  if (!(view.nT > 0)) return;
+  // Пламя из-за кормы и полосы скорости по воде
+  for (let i = 0; i < 10; i++) {
+    const f = (time * 6 + i * 0.37) % 1;
+    const x = BOAT.x + 1.2 + (i % 5) * 0.9;
+    const y = BOAT.y + BOAT.h + f * 2.2;
+    ctx.fillStyle = f < 0.4 ? '#9fe8ff' : f < 0.7 ? '#ffb13d' : 'rgba(255,90,40,0.6)';
+    const r = 0.22 * (1 - f) + 0.05;
+    ctx.fillRect(x - r, y - r, r * 2, r * 2);
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+  ctx.lineWidth = 0.05;
+  for (let i = 0; i < 8; i++) {
+    const x = (i * 1.7 + 0.5) % WORLD_W;
+    const y = (time * 25 + i * 3.1) % (WORLD_H + 4) - 2;
+    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 1.6); ctx.stroke();
+  }
+}
+
+// Кнопка нитро справа над картами
+export function nitroButton(cam) {
+  return { x: cam.w - 42, y: cam.h - cam.bottom - 46, r: 28 };
+}
+
+function drawNitroButton(ctx, cam, view, time, myKey) {
+  if (!(view.ni > 0 || view.nT > 0)) return;
+  const b = nitroButton(cam);
+  const active = view.nT > 0;
+  const waiting = (view.nr || []).length > 0;
+  const iPressed = (view.nr || []).includes(myKey);
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.arc(b.x + 2, b.y + 3, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = active ? '#ffb13d' : iPressed ? '#5fd6ff' : '#2f6fd6';
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = waiting && Math.sin(time * 14) > 0 ? '#ffffff' : '#1e1207';
+  ctx.stroke();
+  outlined(ctx, 'N₂O', b.x, b.y + 4, 11, '#ffffff');
+  outlined(ctx, '×' + (view.ni || 0), b.x + b.r - 4, b.y - b.r + 8, 10, '#ffe14d');
+  if (waiting && !active) {
+    const text = iPressed ? 'ЖДЁМ НАПАРНИКА!' : 'НАПАРНИК ЖМЁТ N₂O!';
+    outlined(ctx, text, b.x - b.r - 6, b.y + 4, 9, '#9fe8ff', 'right');
+  }
+}
+
+function drawBossBar(ctx, cam, view) {
+  if (!view.bs) return;
+  const [kind, hp, max] = view.bs;
+  const w = Math.min(260, cam.w - 60), x = (cam.w - w) / 2;
+  const y = cam.oy + 26;
+  outlined(ctx, BOSS_NAMES[kind] || 'БОСС', cam.w / 2, y - 6, 10, '#ff9a7a');
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
+  ctx.fillRect(x - 2, y - 2, w + 4, 12);
+  ctx.fillStyle = '#4a1010';
+  ctx.fillRect(x, y, w, 8);
+  ctx.fillStyle = '#ff3d5a';
+  ctx.fillRect(x, y, w * Math.max(0, hp / max), 8);
+}
+
 function shade(hex, k) {
   const n = parseInt(hex.slice(1), 16);
   const f = (c) => Math.max(0, Math.min(255, Math.round(c * k)));
@@ -609,7 +833,7 @@ function drawPlayer(ctx, cam, p, color, label) {
   ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 0.25, y + Math.sin(a) * 0.25); ctx.lineTo(rx, ry); ctx.stroke();
   ctx.fillStyle = '#111';
   ctx.beginPath(); ctx.arc(rx, ry, 0.23, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#d6262f';
+  ctx.fillStyle = p.skin === 'rainbow' ? `hsl(${(performance.now() / 5) % 360},90%,55%)` : p.skin || '#d6262f';
   ctx.beginPath(); ctx.arc(rx, ry, 0.19, 0, Math.PI * 2); ctx.fill();
 
   if (p.repair > 0) {
@@ -636,6 +860,9 @@ const ENEMY_LOOK = {
 };
 
 function drawEnemy(ctx, e, time) {
+  if (e.kind === 'serpent') return drawSerpent(ctx, e, time);
+  if (e.kind === 'giant') return drawGiant(ctx, e, time);
+  if (e.kind === 'raider') return drawRaider(ctx, e, time);
   const look = ENEMY_LOOK[e.kind];
   const bob = Math.sin(time * 2.2 + e.id) * 0.05;
   const x = e.x, y = e.y + bob;
@@ -727,7 +954,17 @@ function drawShot(ctx, sh, age, time, myKey) {
 
   const bx = pos.x, by = pos.y - pos.z;
   if (enemy) {
-    if (sh.kind === 'brute') {
+    if (sh.kind === 'boulder') {
+      ctx.fillStyle = '#6f7780';
+      ctx.fillRect(bx - 0.32, by - 0.3, 0.64, 0.6);
+      ctx.fillStyle = '#959da6';
+      ctx.fillRect(bx - 0.32, by - 0.3, 0.3, 0.2);
+    } else if (sh.kind === 'molotov') {
+      ctx.fillStyle = '#7a5230';
+      ctx.fillRect(bx - 0.08, by - 0.18, 0.16, 0.32);
+      ctx.fillStyle = Math.sin(time * 30) > 0 ? '#ffe14d' : '#ff6a2a';
+      ctx.fillRect(bx - 0.07, by - 0.32, 0.14, 0.14);
+    } else if (sh.kind === 'brute') {
       ctx.fillStyle = '#6b4626';
       ctx.fillRect(bx - 0.22, by - 0.26, 0.44, 0.52);
       ctx.fillStyle = '#3a3a3a';
@@ -904,6 +1141,8 @@ function drawHud(ctx, cam, view, hud, joy) {
   }
 
   drawCardBar(ctx, cam, view, hud);
+  drawBossBar(ctx, cam, view);
+  drawNitroButton(ctx, cam, view, performance.now() / 1000, hud.myKey);
 
   if (joy) {
     ctx.globalAlpha = 0.35;
@@ -939,19 +1178,21 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
     const p = smoothed('r' + r[0], r[1], r[2], dt);
     drawRock(ctx, { id: r[0], x: p.x, y: p.y, r: r[3] }, time);
   }
+  drawNitroFlames(ctx, view, time);
   drawBoat(ctx, view, time);
+  drawBossMarks(ctx, view, time);
   if (view.ph !== 'menu') drawHelm(ctx, view, !!view.hm);
   for (const t of view.T || []) drawTurret(ctx, { x: t[1], y: t[2], t: t[3], max: t[4] }, time);
   for (const d of view.D || []) {
     const p = smoothed('d' + d[0], d[1], d[2], dt);
-    drawDebris(ctx, { id: d[0], x: p.x, y: p.y }, time);
+    drawDebris(ctx, { id: d[0], x: p.x, y: p.y, nitro: d[3] }, time);
   }
 
   for (const o of smooth.values()) o.seen = false;
   for (const e of view.E) {
-    const [id, kind, x, y, hp, maxHp, flash, throwT] = e;
+    const [id, kind, x, y, hp, maxHp, flash, throwT, under] = e;
     const p = smoothed('e' + id, x, y, dt);
-    drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age, frozen: view.frT > 0 }, time);
+    drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age, frozen: view.frT > 0, under }, time);
   }
 
   for (const key of ['h', 'g']) {
@@ -961,7 +1202,7 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
     if (me && key === me.key) p = { ...me, repair: arr[7], bail: arr[8] };
     else {
       const sp = smoothed('p' + key, arr[0], arr[1], dt);
-      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6], repair: arr[7], bail: arr[8] };
+      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6], repair: arr[7], bail: arr[8], skin: arr[10] };
     }
     drawPlayer(ctx, cam, p, TEAM_COLORS[key], me && key === me.key ? 'ТЫ' : null);
   }

@@ -16,7 +16,7 @@ export function createInput(canvas) {
     e.preventDefault();
     canvas.setPointerCapture?.(e.pointerId);
     const card = hitTest ? hitTest(e.clientX, e.clientY) : -1;
-    if (card >= 0) { cards.push(card); return; }
+    if (card !== -1 && card != null) { cards.push(card); return; } // номер карты или 'nitro'
     if (e.pointerType === 'mouse') {
       swings.push({ type: 'point', sx: e.clientX, sy: e.clientY });
       return;
@@ -57,6 +57,7 @@ export function createInput(canvas) {
     if (e.code === 'Space' && !e.repeat) { swings.push({ type: 'auto' }); e.preventDefault(); }
     const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
     if (digit >= 0 && !e.repeat) cards.push(digit);
+    if (e.code === 'KeyN' && !e.repeat) cards.push('nitro');
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());

@@ -146,6 +146,11 @@ h2 { font-size: 18px; line-height: 1.4; color: #ffe14d; text-shadow: 3px 3px 0 #
 #chest { background: rgba(5, 20, 40, 0.35); }
 #chest h2 { animation: pulse 0.8s ease-in-out infinite; }
 
+.bigcode.shells { font-size: 22px; letter-spacing: 2px; padding: 10px 0; }
+.shop-item .txt { flex: 1; }
+.shop-item .price { font-size: 9px; white-space: nowrap; color: #1e1207; }
+.shop-item.done { background: #b9a27a; box-shadow: inset 0 0 0 3px #7a5230; }
+
 .pulse { animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 50% { transform: scale(1.06); } }
 .shake { animation: shake 0.35s; }

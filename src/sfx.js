@@ -61,6 +61,15 @@ export const sfx = {
       case 'patch': [330, 392, 494].forEach((f, i) => tone(f, 0.06, 'square', 0.04, 0, i * 0.06)); break;
       case 'loot': tone(784, 0.07, 'square', 0.04); tone(1046, 0.09, 'square', 0.04, 0, 0.07); break;
       case 'splash': noise(0.25, 0.05); break;
+      case 'boss': [110, 98, 82].forEach((f, i) => tone(f, 0.5, 'sawtooth', 0.09, 0.8, i * 0.35)); vibrate(200); break;
+      case 'bossdown': [392, 523, 659, 784, 1046].forEach((f, i) => tone(f, 0.15, 'square', 0.06, 0, i * 0.1)); vibrate(150); break;
+      case 'slam': tone(80, 0.3, 'sawtooth', 0.1, 0.5); noise(0.3, 0.09); vibrate(100); break;
+      case 'roar': tone(140, 0.6, 'sawtooth', 0.07, 0.5); break;
+      case 'stomp': tone(55, 0.6, 'square', 0.12, 0.5); noise(0.5, 0.1); vibrate(250); break;
+      case 'nitro': tone(200, 0.6, 'sawtooth', 0.08, 4); noise(0.6, 0.08); vibrate(120); break;
+      case 'nitrowait': tone(880, 0.08, 'square', 0.04); break;
+      case 'rocksmash': noise(0.3, 0.1); tone(300, 0.15, 'square', 0.05, 0.5); break;
+      case 'chase': [523, 523, 659, 784].forEach((f, i) => tone(f, 0.12, 'square', 0.05, 0, i * 0.12)); break;
       case 'card': tone(523, 0.08, 'square', 0.05); tone(784, 0.12, 'square', 0.05, 0, 0.07); break;
       case 'block': tone(1200, 0.1, 'triangle', 0.05, 0.6); break;
       case 'tshot': tone(900, 0.04, 'square', 0.015, 0.6); break;

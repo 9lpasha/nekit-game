@@ -1,6 +1,7 @@
-import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest } from './sim.js';
-import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout } from './render.js';
+import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, clampToDeck, shotPos } from './const.js';
+import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks } from './sim.js';
+import { loadProgress, saveProgress, shellsFor, perkCost, buyPerk, pickSkin, skinColor, mergePerks } from './progress.js';
+import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton } from './render.js';
 import { createInput } from './input.js';
 import { connect } from './net.js';
 import { sfx } from './sfx.js';
@@ -31,8 +32,14 @@ resize();
 // Тап по карте внизу экрана не должен превращаться в джойстик или удар.
 input.setHitTest((x, y) => {
   if (!G.role || !G.view?.hand) return -1;
+  const nb = nitroButton(cam);
+  if ((G.view.ni > 0 || G.view.nT > 0) && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) return 'nitro';
   return cardLayout(cam).cards.findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y - 6 && y <= r.y + r.h + 6);
 });
+
+// Прогресс этого телефона: ракушки, улучшения, раскраска ракетки
+const P = loadProgress();
+try { P.best = Math.max(P.best, Number(localStorage.getItem('lodka-best') || 0)); } catch {}
 
 // iOS Safari игнорирует user-scalable=no, поэтому глушим зум жестами вручную.
 for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -74,11 +81,11 @@ if (NET_MODE === 'local') window.__G = G; // для отладки в dev.html
 
 function resetMe() {
   const p = START_POS[G.myKey];
-  G.me = { key: G.myKey, x: p.x, y: p.y, fx: 0, fy: -1, swingAge: 9, sdx: 0, sdy: -1, lastSwing: -9, steer: 0 };
+  G.me = { key: G.myKey, x: p.x, y: p.y, fx: 0, fy: -1, swingAge: 9, sdx: 0, sdy: -1, lastSwing: -9, steer: 0, skin: skinColor(P) };
 }
 
 // ---------- Экраны ----------
-const screens = ['menu', 'wait', 'overlay'];
+const screens = ['menu', 'wait', 'overlay', 'shop'];
 function show(id) {
   for (const s of screens) $(s).classList.toggle('hidden', s !== id);
 }
@@ -132,6 +139,15 @@ function setupActions(room) {
     if (d.c === 'restart' && G.state.phase !== 'play') restart();
     else if (d.c === 'card') hostPlayCard(G.state, 'g', d.i, d.id);
     else if (d.c === 'pick') hostPickChest(G.state, d.k, 'g');
+    else if (d.c === 'nitro') requestNitro(G.state, 'g');
+    else if (d.c === 'perks') {
+      // Улучшения и раскраска гостя: берём лучшее из двух
+      G.guestPerks = d.perks || {};
+      G.guestSkin = d.skin || '';
+      if (G.state.players.g) G.state.players.g.skin = G.guestSkin;
+      Object.assign(G.state.opts, gameOpts());
+      if (G.state.t < 10) applyPerks(G.state, G.state.opts.perks);
+    }
   });
   return a;
 }
@@ -184,6 +200,16 @@ async function openRoom(code, as) {
 
 function setStatus(text) { $('wait-status').textContent = text; }
 
+// Настройки забега для хоста: улучшения (лучшее из двух игроков) и раскраски ракеток.
+function gameOpts() {
+  const duo = G.role === 'host';
+  return {
+    island: ISLAND,
+    perks: duo ? mergePerks(P.perks, G.guestPerks) : P.perks,
+    skins: { h: skinColor(P), g: duo ? G.guestSkin : '' },
+  };
+}
+
 function startGame(role) {
   G.role = role;
   G.waitingAs = null;
@@ -192,11 +218,12 @@ function startGame(role) {
   G.hint = 5;
   resetMe();
   if (role !== 'guest') {
-    G.state = createState(role === 'solo', { island: ISLAND });
+    G.state = createState(role === 'solo', gameOpts());
     G.view = snapshot(G.state);
   } else {
     G.view = null;
     G.viewAt = performance.now();
+    G.actions.cmd.send({ c: 'perks', perks: P.perks, skin: skinColor(P) }, G.peerId);
   }
   show(null);
 }
@@ -205,13 +232,14 @@ function startGame(role) {
 function addGuest() {
   G.role = 'host';
   G.state.solo = false;
-  G.state.players.g = newPlayer('g');
+  G.state.players.g = newPlayer('g', G.guestSkin);
   G.state.banner = 'Напарник на борту!';
   G.state.bannerT = 2;
   show(G.state.phase === 'over' ? 'overlay' : null);
 }
 
 function restart() {
+  Object.assign(G.state.opts, gameOpts());
   resetState(G.state);
   G.outEvents = [];
   resetMe();
@@ -251,15 +279,17 @@ function toMenu() {
 
 function gameOver(view) {
   G.overShown = true;
-  let best = 0;
-  try {
-    best = Number(localStorage.getItem('lodka-best') || 0);
-    if (view.sc > best) { best = view.sc; localStorage.setItem('lodka-best', String(best)); }
-  } catch {}
+  const gained = shellsFor(view);
+  P.shells += gained;
+  P.best = Math.max(P.best, view.sc);
+  saveProgress(P);
+  updateShopButton();
+  const best = P.best;
   const win = view.ph === 'win';
   const title = win ? 'ОСТРОВ!' : 'Лодка затонула';
   const text = (win ? 'Остров, остров — ужин готов! 🍗<br><br>' : `Проплыли <b>${Math.round((view.di / view.isl) * 100)}%</b> пути, волна <b>${view.w}</b><br>`)
-    + `Очки: <b>${view.sc}</b> · Рекорд: <b>${best}</b>`;
+    + `Очки: <b>${view.sc}</b> · Рекорд: <b>${best}</b><br>`
+    + `Боссов: <b>${view.bk || 0}</b>${view.rk ? ' · рейдеры потоплены' : ''}<br><br>+<b>${gained}</b> 🐚 (всего ${P.shells})`;
   const again = G.role === 'guest' ? () => G.actions.cmd.send({ c: 'restart' }, G.peerId) : restart;
   showOverlay(title, text, win ? 'Плыть снова' : 'Ещё раз', again);
 }
@@ -267,6 +297,13 @@ function gameOver(view) {
 // ---------- Карты и сундук ----------
 function handleCards(view) {
   for (const i of input.takeCards()) {
+    if (i === 'nitro') {
+      if (view.ni > 0 && view.ph === 'play') {
+        if (G.role === 'guest') G.actions.cmd.send({ c: 'nitro' }, G.peerId);
+        else requestNitro(G.state, 'h');
+      }
+      continue;
+    }
     const card = view.hand?.[i];
     if (!card || view.ph !== 'play' || view.ch) continue;
     const [id] = card;
@@ -448,6 +485,7 @@ function frame(now) {
       : G.code ? `Комната ${G.code}${G.ping != null ? ' · ' + Math.round(G.ping) + ' мс' : ''}` : '',
     hint: G.hint,
     pressed: G.pressed && performance.now() < G.pressed.until ? G.pressed.i : -1,
+    myKey: G.myKey,
   };
   render(ctx, cam, view || idleView, age, G.role && view ? G.me : null, fx, time, dt, hud,
     G.role ? input.joystick() : null);
@@ -471,6 +509,43 @@ $('btn-join').onclick = () => {
 $('code').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btn-join').click(); });
 $('code').addEventListener('input', (e) => { e.target.value = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
 $('btn-solo').onclick = () => { goMobile(); G.code = ''; startGame('solo'); };
+
+// ---------- Магазин ----------
+function updateShopButton() { $('btn-shop').textContent = `Магазин · ${P.shells} 🐚`; }
+
+function renderShop() {
+  $('shop-shells').textContent = `${P.shells} 🐚`;
+  const list = $('shop-list');
+  list.innerHTML = '';
+  const row = (icon, title, desc, price, onBuy, state) => {
+    const b = document.createElement('button');
+    b.className = 'chest-opt shop-item' + (state === 'done' ? ' done' : '');
+    b.innerHTML = '<span class="ico"></span><span class="txt"><div class="t"></div><div class="d"></div></span><span class="price"></span>';
+    b.querySelector('.ico').textContent = icon;
+    b.querySelector('.t').textContent = title;
+    b.querySelector('.d').textContent = desc;
+    b.querySelector('.price').textContent = price;
+    b.onclick = () => { if (onBuy()) { sfx.event({ type: 'chest' }); renderShop(); updateShopButton(); } else sfx.nope(); };
+    list.appendChild(b);
+  };
+  const head = (text) => { const h = document.createElement('p'); h.className = 'label'; h.textContent = text; list.appendChild(h); };
+  head('Улучшения');
+  for (const [id, perk] of Object.entries(PERKS)) {
+    const lvl = P.perks[id] || 0;
+    const cost = perkCost(P, id);
+    row(perk.icon, `${perk.name} ${'★'.repeat(lvl)}${'☆'.repeat(perk.max - lvl)}`, perk.desc(Math.min(perk.max, lvl + (cost == null ? 0 : 1))),
+      cost == null ? 'макс' : `${cost} 🐚`, () => buyPerk(P, id), cost == null ? 'done' : '');
+  }
+  head('Ракетка');
+  SKINS.forEach((skin, i) => {
+    const owned = P.owned.includes(i);
+    row('🏓', skin.name, P.skin === i ? 'Выбрана' : owned ? 'Нажми, чтобы выбрать' : 'Новая раскраска',
+      P.skin === i ? '✓' : owned ? '' : `${skin.cost} 🐚`, () => pickSkin(P, i), P.skin === i ? 'done' : '');
+  });
+}
+$('btn-shop').onclick = () => { sfx.init(); renderShop(); show('shop'); };
+$('shop-back').onclick = () => show('menu');
+updateShopButton();
 $('btn-cancel').onclick = toMenu;
 $('ov-menu').onclick = toMenu;
 $('btn-wait-solo').onclick = () => startGame('solo'); // комната остаётся открытой, напарник может зайти позже

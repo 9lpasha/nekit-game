@@ -43,6 +43,29 @@ export const CARDS = {
   repair: { name: 'Ремонт', icon: '🔧', cost: 4, desc: (l) => `Латает ${l + 1} дыры, −${10 * l}% воды` },
   gull:   { name: 'Чайка', icon: '🐦', cost: 2, desc: (l) => `Приносит ${1 + l} доски` },
 };
+// Боссы, нитро и финальная погоня (доли пути до острова).
+export const BOSS_AT = [0.33, 0.66];
+export const CHASE_AT = 0.86;
+export const NITRO_MAX = 3;
+export const NITRO_TIME = 5;
+export const NITRO_MULT = 1.8;
+export const NITRO_SYNC = 1.0; // секунд: оба должны нажать N₂O почти одновременно
+
+// Постоянные улучшения за ракушки. В совместной игре берётся лучший уровень из двух игроков.
+export const PERKS = {
+  planks: { name: 'Запас досок', icon: '🪵', max: 3, cost: [20, 40, 70], desc: (l) => `+${l} доски на старте` },
+  elixir: { name: 'Полный бак', icon: '💧', max: 3, cost: [20, 40, 70], desc: (l) => `+${l} эликсира на старте` },
+  hull: { name: 'Крепкое дно', icon: '🛶', max: 3, cost: [30, 60, 100], desc: (l) => `Течь меньше на ${l * 15}%` },
+  nitro: { name: 'Баллон нитро', icon: '🚀', max: 2, cost: [40, 80], desc: (l) => `+${l} нитро на старте` },
+  freeze: { name: 'Ледяная карта', icon: '❄️', max: 1, cost: [60], desc: () => 'Заморозка в колоде с начала' },
+};
+export const SKINS = [
+  { name: 'Классика', color: '#d6262f', cost: 0 },
+  { name: 'Синяя', color: '#2f6fd6', cost: 25 },
+  { name: 'Ядовитая', color: '#5fd62f', cost: 40 },
+  { name: 'Золотая', color: '#ffc93d', cost: 100 },
+  { name: 'Радужная', color: 'rainbow', cost: 200 },
+];
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш
 
 export const TEAM_COLORS = { h: '#ff8a3d', g: '#3db4ff' };

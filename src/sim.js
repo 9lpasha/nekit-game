@@ -2,10 +2,12 @@
 import {
   BOAT, WORLD_W, WORLD_H, REACH, SWING_ACTIVE, PERFECT_WINDOW, SMASH_CHARGE,
   START_POS, LEAK_PER_HOLE, BAIL_RATE, REPAIR_TIME, START_PLANKS, BUCKET, DEBRIS_LANES,
+  NITRO_MAX, NITRO_TIME, NITRO_SYNC, HAND_SIZE,
   pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
 import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
 import { initCards, updateCards, playCard, openChest, pickChest, snapshotCards } from './cards.js';
+import { initBoss, updateBoss, snapshotBoss, BOSS_KINDS } from './boss.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -32,8 +34,8 @@ export function createState(solo, opts = {}) {
     debrisTimer: 2,
     resets: 0,
     players: {
-      h: newPlayer('h'),
-      g: solo ? null : newPlayer('g'),
+      h: newPlayer('h', opts.skins?.h),
+      g: solo ? null : newPlayer('g', opts.skins?.g),
     },
     swings: {},
     enemies: [],
@@ -48,11 +50,42 @@ export function createState(solo, opts = {}) {
   };
   initVoyage(s, opts);
   initCards(s);
+  initBoss(s);
+  Object.assign(s, { nitro: 0, nitroT: 0, nitroReq: {}, leakMul: 1, perks: {} });
+  applyPerks(s, opts.perks || {});
   return s;
 }
 
-export function newPlayer(key) {
-  return { ...START_POS[key], fx: 0, fy: -1, repair: 0, bail: false, steer: 0 };
+export function newPlayer(key, skin) {
+  return { ...START_POS[key], fx: 0, fy: -1, repair: 0, bail: false, steer: 0, skin: skin || '' };
+}
+
+// Постоянные улучшения за ракушки. Можно вызывать повторно (гость прислал свои позже) —
+// добавится только разница.
+export function applyPerks(s, perks) {
+  for (const [k, lvl] of Object.entries(perks)) {
+    const add = lvl - (s.perks[k] || 0);
+    if (add <= 0) continue;
+    s.perks[k] = lvl;
+    if (k === 'planks') s.planks += add;
+    if (k === 'elixir') s.elixir = Math.min(10, s.elixir + add);
+    if (k === 'nitro') s.nitro = Math.min(NITRO_MAX, s.nitro + add);
+    if (k === 'hull') s.leakMul = 1 - 0.15 * lvl;
+    if (k === 'freeze' && !s.levels.freeze) { s.levels.freeze = 1; s.queue.splice(HAND_SIZE, 0, 'freeze'); }
+  }
+}
+
+// «Мы — семья»: нитро срабатывает, только если все игроки нажали почти одновременно.
+export function requestNitro(s, key) {
+  if (s.phase !== 'play' || s.chest || s.boss || s.nitroT > 0 || s.nitro <= 0) return;
+  s.nitroReq[key] = s.t;
+  const keys = ['h', 'g'].filter((k) => s.players[k]);
+  if (keys.every((k) => s.t - (s.nitroReq[k] ?? -99) <= NITRO_SYNC)) {
+    s.nitroT = NITRO_TIME;
+    s.nitro--;
+    s.nitroReq = {};
+    emit(s, 'nitro', {});
+  } else emit(s, 'nitrowait', { key });
 }
 
 export function resetState(s) {
@@ -150,6 +183,7 @@ function reflect(s, shot, key, sw) {
   // Автоприцел: ближайший по углу враг или напарник в конусе удара.
   let target = null, best = charge >= SMASH_CHARGE ? 1.1 : 0.56;
   for (const e of s.enemies) {
+    if (e.under) continue; // нырнувшего змея не видно
     const a = angleTo(shot.x, shot.y, sw.dx, sw.dy, e.x, e.y);
     if (a < best) { best = a; target = e; }
   }
@@ -199,18 +233,18 @@ function arrive(s, shot) {
   const r = shot.smash ? 2.3 : 0.95;
   let hitAny = false;
   for (const e of s.enemies) {
-    if (dist(e.x, e.y, shot.tx, shot.ty) > r) continue;
+    if (e.under || dist(e.x, e.y, shot.tx, shot.ty) > r + (e.size || 0) * 0.6) continue;
     hitAny = true;
     e.hp -= shot.dmg;
     e.flash = 0;
     emit(s, 'ehit', { x: e.x, y: e.y, dmg: shot.dmg });
     if (e.hp <= 0) {
-      const pts = Math.round(KINDS[e.kind].score * (1 + (shot.charge - 1) * 0.5) * (shot.perfect ? 1.5 : 1));
+      const pts = Math.round((KINDS[e.kind] || BOSS_KINDS[e.kind]).score * (1 + (shot.charge - 1) * 0.5) * (shot.perfect ? 1.5 : 1));
       s.score += pts;
       emit(s, 'kill', { x: e.x, y: e.y, pts, kind: e.kind });
     }
   }
-  for (const e of s.enemies) if (e.hp <= 0 && Math.random() < 0.4) dropDebris(s, e.x, e.y);
+  for (const e of s.enemies) if (e.hp <= 0 && !e.boss && Math.random() < 0.4) dropDebris(s, e.x, e.y);
   s.enemies = s.enemies.filter((e) => e.hp > 0);
   if (shot.smash) emit(s, 'smash', { x: shot.tx, y: shot.ty, r });
   else if (!hitAny) emit(s, 'splash', { x: shot.tx, y: shot.ty });
@@ -241,7 +275,8 @@ function updateDebris(s, dt) {
     const need = s.holes.length > s.planks ? 0.6 : 1;
     s.debrisTimer = rand(4, 6.5) * need;
     const lane = Math.random() < 0.5 ? 0 : 1;
-    s.debris.push({ id: s.nextId++, x: DEBRIS_LANES[lane], y: -1, lane });
+    const nitro = s.nitro < NITRO_MAX && Math.random() < 0.08; // иногда вместо доски — баллон нитро
+    s.debris.push({ id: s.nextId++, x: DEBRIS_LANES[lane], y: -1, lane, kind: nitro ? 'nitro' : 'plank' });
   }
   for (const d of s.debris) {
     const lx = DEBRIS_LANES[d.lane];
@@ -303,6 +338,17 @@ export function step(s, dt) {
     return;
   }
   updateCards(s, dt, cardHooks(s));
+  s.nitroT = Math.max(0, s.nitroT - dt);
+  updateBoss(s, dt, {
+    emit: (type, data) => emit(s, type, data),
+    banner: (text, t) => { s.banner = text; s.bannerT = t; },
+    punchHole: (col, row, water) => {
+      if (s.shieldT > 0) { emit(s, 'block', { x: BOAT.x + col + 0.5, y: BOAT.y + row + 0.5 }); return false; }
+      return punchHole(s, col, row, water);
+    },
+    addWater: (n) => addWater(s, n),
+    openChest: () => openChest(s),
+  });
 
   updateDebris(s, dt);
   updateCrew(s, dt);
@@ -316,15 +362,17 @@ export function step(s, dt) {
     banner: (text, t) => { s.banner = text; s.bannerT = t; },
   });
   if (s.phase !== 'play') return;
-  addWater(s, s.holes.length * LEAK_PER_HOLE * dt);
+  addWater(s, s.holes.length * LEAK_PER_HOLE * s.leakMul * dt);
   if (s.water >= 100) {
     s.phase = 'over';
     emit(s, 'over', { score: s.score, wave: s.wave });
     return;
   }
 
-  // Волны
-  if (s.breakTimer > 0) {
+  // Волны (во время боя с боссом и финальной погони новые не начинаются)
+  if (s.boss || s.chase) {
+    // ждём
+  } else if (s.breakTimer > 0) {
     s.breakTimer -= dt;
     if (s.breakTimer <= 0) startWave(s);
   } else if (s.spawnQueue > 0) {
@@ -343,6 +391,7 @@ export function step(s, dt) {
   // Враги
   const speedUp = 1 + Math.min(s.wave - 1, 8) * 0.07;
   for (const e of s.enemies) {
+    if (e.boss) continue; // боссами управляет boss.js
     const k = KINDS[e.kind];
     e.flash += dt;
     e.throwT += dt;
@@ -396,8 +445,9 @@ export function step(s, dt) {
     for (const d of s.debris) {
       if (d.got || dist(d.x, d.y, p.x, p.y) > reach + 0.15) continue;
       d.got = true;
-      s.planks++;
-      emit(s, 'loot', { x: d.x, y: d.y, key });
+      if (d.kind === 'nitro') s.nitro = Math.min(NITRO_MAX, s.nitro + 1);
+      else s.planks++;
+      emit(s, 'loot', { x: d.x, y: d.y, key, nitro: d.kind === 'nitro' });
     }
     s.debris = s.debris.filter((d) => !d.got);
   }
@@ -413,7 +463,7 @@ export function snapshot(s) {
     const p = s.players[key];
     if (!p) return null;
     const sw = s.swings[key];
-    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0, p.steer || 0];
+    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0, p.steer || 0, p.skin || ''];
   };
   return {
     t: s.t,
@@ -424,13 +474,17 @@ export function snapshot(s) {
     pl: s.planks,
     H: s.holes.map((h) => [h.col, h.row]),
     PT: s.patches.map((h) => [h.col, h.row]),
-    D: s.debris.map((d) => [d.id, d.x, d.y]),
+    D: s.debris.map((d) => [d.id, d.x, d.y, d.kind === 'nitro' ? 1 : 0]),
+    ni: s.nitro,
+    nT: s.nitroT,
+    nr: Object.entries(s.nitroReq).filter(([, t]) => s.t - t <= NITRO_SYNC).map(([k]) => k),
     rs: s.resets,
     ...snapshotVoyage(s),
     ...snapshotCards(s),
+    ...snapshotBoss(s),
     ban: s.bannerT > 0 ? s.banner : null,
     P: { h: pl('h'), g: pl('g') },
-    E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT]),
+    E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT, e.under ? 1 : 0]),
     S: s.shots.map((sh) => [sh.id, sh.owner, sh.kind || '', sh.charge, sh.x0, sh.y0, sh.tx, sh.ty, sh.t, sh.dur, sh.arc, sh.passTo || '', sh.smash ? 1 : 0]),
   };
 }

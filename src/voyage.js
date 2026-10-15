@@ -2,7 +2,7 @@
 // Лодка всегда в центре экрана, поэтому «движение» — это смещение мира навстречу.
 // Скалы и водовороты живут в мировых координатах (wx), на экран переводятся через boatX.
 import {
-  BOAT, HELM, BOAT_SPEED, STEER_SPEED, ISLAND_DIST, STORM_START_GAP, WORLD_W, dist,
+  BOAT, HELM, BOAT_SPEED, STEER_SPEED, ISLAND_DIST, STORM_START_GAP, WORLD_W, NITRO_MULT, dist,
 } from './const.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -37,6 +37,9 @@ export function updateVoyage(s, dt, hooks) {
   const steer = s.helm ? s.players[s.helm].steer || 0 : 0;
   s.boatVx += (steer * STEER_SPEED - s.boatVx) * Math.min(1, dt * 4);
 
+  // Во время боя с боссом лодка стоит, шторм тоже замирает
+  if (s.boss) { s.speed = 0; s.boatX += s.boatVx * dt; return; }
+
   // Скорость: вода утяжеляет лодку, водоворот тормозит и тянет к центру.
   let speed = BOAT_SPEED * (1 - 0.45 * s.water / 100);
   for (const w of s.whirls) {
@@ -47,12 +50,13 @@ export function updateVoyage(s, dt, hooks) {
       if (!w.warned) { w.warned = true; hooks.emit('whirl', { x: screenX(s, w.wx), y: w.y }); }
     }
   }
+  if (s.nitroT > 0) speed *= NITRO_MULT;
   s.speed = speed;
   s.boatX += s.boatVx * dt;
   s.dist += speed * dt;
 
   // Шторм ускоряется со временем, но далеко вперёд лодки не уходит.
-  const stormSpeed = 1.1 + 0.001 * s.t;
+  const stormSpeed = 1.1 + 0.001 * s.t + (s.chase ? 0.35 : 0); // в финальной погоне шторм злее
   s.storm = Math.min(s.storm + stormSpeed * dt, s.dist + 4);
   const gap = s.dist - s.storm;
   if (gap < 10 && !s.stormWarned) { s.stormWarned = true; hooks.banner('Шторм догоняет!', 1.8); hooks.emit('stormnear', {}); }
@@ -75,7 +79,7 @@ export function updateVoyage(s, dt, hooks) {
   // Скалы: часть специально по курсу лодки — без рулевого в них врежешься.
   s.rockTimer -= dt;
   if (s.rockTimer <= 0 && remaining > 30) {
-    s.rockTimer = rand(6, 9) / (1 + Math.min(s.wave, 10) * 0.05);
+    s.rockTimer = rand(6, 9) / (1 + Math.min(s.wave, 10) * 0.05) / (s.chase ? 1.8 : 1);
     const onCourse = Math.random() < 0.35;
     s.rocks.push({
       id: s.nextId++,
@@ -95,6 +99,11 @@ export function updateVoyage(s, dt, hooks) {
     const sx = screenX(s, r.wx);
     const hitX = sx > BOAT.x - r.r * 0.6 && sx < BOAT.x + BOAT.w + r.r * 0.6;
     const hitY = r.y + r.r > BOAT.y + 1 && r.y - r.r < BOAT.y + BOAT.h;
+    if (!r.hit && hitX && hitY && s.nitroT > 0) {
+      // На нитро лодка проламывает скалу носом без пробоины
+      r.hit = true;
+      hooks.emit('rocksmash', { x: Math.max(BOAT.x, Math.min(BOAT.x + BOAT.w, sx)), y: BOAT.y + 1 });
+    }
     if (!r.hit && hitX && hitY) {
       r.hit = true;
       const col = Math.max(0, Math.min(BOAT.w - 1, Math.floor(sx - BOAT.x)));

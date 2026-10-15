@@ -3,6 +3,7 @@ import {
   WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET, HELM, CARDS,
   isBoatTile, tileAt, shotPos, lerp,
 } from './const.js';
+import { drawCutscene } from './cutscene.js';
 
 const FONT = '"Press Start 2P", system-ui, monospace';
 
@@ -1161,6 +1162,13 @@ function drawHud(ctx, cam, view, hud, joy) {
 // me — локальный игрок (рисуем без задержки сети).
 export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   updateFx(fx, dt);
+  if (view.cut) {
+    const P = view.P || {};
+    drawCutscene(ctx, cam, view.cut[0], view.cut[1] + age, {
+      duo: !!P.g, skins: { h: P.h?.[10], g: P.g?.[10] }, skip: hud.skip || 0,
+    });
+    return;
+  }
   ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
   drawWater(ctx, cam, time, view);
 

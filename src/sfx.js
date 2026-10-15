@@ -61,6 +61,21 @@ export const sfx = {
       case 'patch': [330, 392, 494].forEach((f, i) => tone(f, 0.06, 'square', 0.04, 0, i * 0.06)); break;
       case 'loot': tone(784, 0.07, 'square', 0.04); tone(1046, 0.09, 'square', 0.04, 0, 0.07); break;
       case 'splash': noise(0.25, 0.05); break;
+      // Звуки кат-сцен
+      case 'cutstart': [262, 330, 392].forEach((f, i) => tone(f, 0.5, 'triangle', 0.05, 0, i * 0.25)); break;
+      case 'title': [392, 523, 659, 784].forEach((f, i) => tone(f, 0.18, 'square', 0.05, 0, i * 0.12)); break;
+      case 'rumble': tone(45, 1.2, 'sawtooth', 0.08, 0.8); noise(1.0, 0.05); break;
+      case 'bosstitle': tone(98, 0.25, 'square', 0.08); tone(147, 0.4, 'square', 0.08, 0, 0.2); break;
+      case 'stone': tone(70, 0.15, 'square', 0.09, 0.6); noise(0.12, 0.08); break;
+      case 'ignite': tone(400, 0.4, 'sawtooth', 0.05, 2); break;
+      case 'engine': tone(90, 1.8, 'sawtooth', 0.06, 1.6); break;
+      case 'drift': noise(0.6, 0.1); tone(600, 0.4, 'square', 0.03, 0.5); break;
+      case 'bump': tone(80, 0.2, 'square', 0.09, 0.6); vibrate(80); break;
+      case 'jump': tone(300, 0.15, 'square', 0.04, 2); break;
+      case 'pop': tone(500, 0.08, 'square', 0.04, 1.5); break;
+      case 'fire': noise(0.8, 0.04); break;
+      case 'click': tone(1200, 0.03, 'square', 0.04); tone(900, 0.03, 'square', 0.04, 0, 0.06); break;
+      case 'movie': [523, 659, 523, 784].forEach((f, i) => tone(f, 0.1, 'triangle', 0.04, 0, i * 0.15)); break;
       case 'boss': [110, 98, 82].forEach((f, i) => tone(f, 0.5, 'sawtooth', 0.09, 0.8, i * 0.35)); vibrate(200); break;
       case 'bossdown': [392, 523, 659, 784, 1046].forEach((f, i) => tone(f, 0.15, 'square', 0.06, 0, i * 0.1)); vibrate(150); break;
       case 'slam': tone(80, 0.3, 'sawtooth', 0.1, 0.5); noise(0.3, 0.09); vibrate(100); break;

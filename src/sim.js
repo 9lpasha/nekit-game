@@ -2,7 +2,7 @@
 import {
   BOAT, WORLD_W, WORLD_H, REACH, SWING_ACTIVE, PERFECT_WINDOW, SMASH_CHARGE,
   START_POS, LEAK_PER_HOLE, BAIL_RATE, REPAIR_TIME, START_PLANKS, BUCKET, DEBRIS_LANES,
-  NITRO_MAX, NITRO_TIME, NITRO_SYNC, HAND_SIZE,
+  NITRO_MAX, NITRO_TIME, NITRO_SYNC, HAND_SIZE, CUT_TIME,
   pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
 import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
@@ -51,7 +51,8 @@ export function createState(solo, opts = {}) {
   initVoyage(s, opts);
   initCards(s);
   initBoss(s);
-  Object.assign(s, { nitro: 0, nitroT: 0, nitroReq: {}, leakMul: 1, perks: {} });
+  Object.assign(s, { nitro: 0, nitroT: 0, nitroReq: {}, leakMul: 1, perks: {}, arrived: false });
+  s.cut = opts.noIntro ? null : { id: 'intro', t: 0 }; // вступительная кат-сцена
   applyPerks(s, opts.perks || {});
   return s;
 }
@@ -89,6 +90,7 @@ export function requestNitro(s, key) {
 }
 
 export function resetState(s) {
+  s.opts.noIntro = true; // при «Ещё раз» вступление не показываем
   const fresh = createState(s.solo, s.opts);
   fresh.resets = s.resets + 1;
   Object.assign(s, fresh);
@@ -323,6 +325,25 @@ function cardHooks(s) {
   };
 }
 
+// ---------- Кат-сцены (игра на паузе) ----------
+function startCut(s, id) {
+  s.cut = { id, t: 0 };
+  emit(s, 'cut', { id });
+}
+
+function endCut(s) {
+  const id = s.cut.id;
+  s.cut = null;
+  if (id === 'outro') {
+    s.phase = 'win';
+    emit(s, 'win', { score: s.score, wave: s.wave });
+  }
+}
+
+export function skipCut(s) {
+  if (s.cut) s.cut.t = CUT_TIME[s.cut.id];
+}
+
 export function hostPlayCard(s, key, i, id) { return playCard(s, key, i, id, cardHooks(s)); }
 export function hostPickChest(s, k, key) { pickChest(s, k, key, cardHooks(s)); }
 
@@ -330,6 +351,12 @@ export function step(s, dt) {
   s.t += dt;
   if (s.bannerT > 0) s.bannerT -= dt;
   if (s.phase !== 'play') return;
+
+  if (s.cut) {
+    s.cut.t += dt;
+    if (s.cut.t >= CUT_TIME[s.cut.id]) endCut(s);
+    return;
+  }
 
   // Пока открыт сундук — игра на паузе
   if (s.chest) {
@@ -348,6 +375,7 @@ export function step(s, dt) {
     },
     addWater: (n) => addWater(s, n),
     openChest: () => openChest(s),
+    startCut: (id) => startCut(s, id),
   });
 
   updateDebris(s, dt);
@@ -360,8 +388,9 @@ export function step(s, dt) {
     },
     addWater: (amount) => addWater(s, amount),
     banner: (text, t) => { s.banner = text; s.bannerT = t; },
+    arrive: () => { if (!s.arrived) { s.arrived = true; startCut(s, 'outro'); } },
   });
-  if (s.phase !== 'play') return;
+  if (s.phase !== 'play' || s.cut) return;
   addWater(s, s.holes.length * LEAK_PER_HOLE * s.leakMul * dt);
   if (s.water >= 100) {
     s.phase = 'over';
@@ -479,6 +508,7 @@ export function snapshot(s) {
     nT: s.nitroT,
     nr: Object.entries(s.nitroReq).filter(([, t]) => s.t - t <= NITRO_SYNC).map(([k]) => k),
     rs: s.resets,
+    cut: s.cut ? [s.cut.id, s.cut.t] : null,
     ...snapshotVoyage(s),
     ...snapshotCards(s),
     ...snapshotBoss(s),

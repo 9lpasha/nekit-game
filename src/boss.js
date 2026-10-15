@@ -48,7 +48,7 @@ function spawn(s, kind, x, y) {
   return e;
 }
 
-// hooks: { emit, banner(text, t), punchHole(col, row, water), addWater(n), openChest() }
+// hooks: { emit, banner(text, t), punchHole(col, row, water), addWater(n), openChest(), startCut(id) }
 export function updateBoss(s, dt, hooks) {
   const prog = s.dist / s.island;
   if (!s.boss && !s.chase && s.bossIdx < BOSS_AT.length && prog >= BOSS_AT[s.bossIdx]) {
@@ -58,6 +58,7 @@ export function updateBoss(s, dt, hooks) {
     if (kind === 'serpent') spawn(s, kind, -1.5, 12);
     else spawn(s, kind, WORLD_W / 2, -2);
     hooks.banner('БОСС: ' + BOSS_KINDS[kind].name.toUpperCase() + '!', 2.5);
+    hooks.startCut(kind);
     hooks.emit('boss', { kind });
   }
   if (!s.boss && !s.chase && prog >= CHASE_AT) {
@@ -66,6 +67,7 @@ export function updateBoss(s, dt, hooks) {
     s.spawnQueue = 0;
     spawn(s, 'raider', WORLD_W / 2, -2).state = 'chase';
     hooks.banner('ФИНАЛЬНАЯ ПОГОНЯ!', 2.5);
+    hooks.startCut('raider');
     hooks.emit('chase', {});
   }
 

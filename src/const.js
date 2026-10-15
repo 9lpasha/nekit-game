@@ -66,6 +66,8 @@ export const SKINS = [
   { name: 'Золотая', color: '#ffc93d', cost: 100 },
   { name: 'Радужная', color: 'rainbow', cost: 200 },
 ];
+// Кат-сцены: длительность в секундах (игра на это время на паузе, тап — пропустить).
+export const CUT_TIME = { intro: 9, serpent: 5.5, giant: 5.5, raider: 5, outro: 17 };
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш
 
 export const TEAM_COLORS = { h: '#ff8a3d', g: '#3db4ff' };

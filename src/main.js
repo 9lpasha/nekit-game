@@ -1,5 +1,6 @@
 import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks } from './sim.js';
+import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut } from './sim.js';
+import { cutCues, skipButton, SKIP_HOLD } from './cutscene.js';
 import { loadProgress, saveProgress, shellsFor, perkCost, buyPerk, pickSkin, skinColor, mergePerks } from './progress.js';
 import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton } from './render.js';
 import { createInput } from './input.js';
@@ -31,6 +32,11 @@ resize();
 
 // Тап по карте внизу экрана не должен превращаться в джойстик или удар.
 input.setHitTest((x, y) => {
+  if (G.role && G.view?.cut) {
+    // Во время кат-сцены работает только кнопка пропуска (её надо удерживать)
+    const b = skipButton(cam);
+    return Math.hypot(x - b.x, y - b.y) < b.r + 12 ? 'skip' : 'cut';
+  }
   if (!G.role || !G.view?.hand) return -1;
   const nb = nitroButton(cam);
   if ((G.view.ni > 0 || G.view.nT > 0) && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) return 'nitro';
@@ -140,6 +146,7 @@ function setupActions(room) {
     else if (d.c === 'card') hostPlayCard(G.state, 'g', d.i, d.id);
     else if (d.c === 'pick') hostPickChest(G.state, d.k, 'g');
     else if (d.c === 'nitro') requestNitro(G.state, 'g');
+    else if (d.c === 'skip') skipCut(G.state);
     else if (d.c === 'perks') {
       // Улучшения и раскраска гостя: берём лучшее из двух
       G.guestPerks = d.perks || {};
@@ -294,6 +301,26 @@ function gameOver(view) {
   showOverlay(title, text, win ? 'Плыть снова' : 'Ещё раз', again);
 }
 
+// ---------- Кат-сцены: звуки по таймлайну и пропуск удержанием кнопки ----------
+G.skipHold = 0;
+G.cutPrev = null;
+function handleCut(view, age, dt) {
+  if (!view.cut) { G.cutPrev = null; G.skipHold = 0; return; }
+  const [id, t0] = view.cut;
+  const t = t0 + age;
+  const prev = G.cutPrev && G.cutPrev.id === id ? G.cutPrev.t : -1;
+  for (const type of cutCues(id, prev, t)) sfx.event({ type });
+  G.cutPrev = { id, t };
+  if (input.skipHeld()) {
+    G.skipHold += dt;
+    if (G.skipHold >= SKIP_HOLD) {
+      G.skipHold = 0;
+      if (G.role === 'guest') G.actions.cmd.send({ c: 'skip' }, G.peerId);
+      else skipCut(G.state);
+    }
+  } else G.skipHold = 0;
+}
+
 // ---------- Карты и сундук ----------
 function handleCards(view) {
   for (const i of input.takeCards()) {
@@ -437,7 +464,7 @@ function frame(now) {
 
   if (G.role === 'host' || G.role === 'solo') {
     const s = G.state;
-    updateMe(dt, now, view, 0);
+    if (view.cut) input.clear(); else updateMe(dt, now, view, 0);
     const p = s.players.h;
     p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy; p.steer = G.me.steer;
     acc += dt;
@@ -464,7 +491,7 @@ function frame(now) {
         G.overShown = false;
         show(null);
       }
-      updateMe(dt, now, view, age);
+      if (view.cut) input.clear(); else updateMe(dt, now, view, age);
       if (now - G.lastSend >= SEND_EVERY) {
         G.lastSend = now;
         const r = (n) => Math.round(n * 1000) / 1000;
@@ -475,7 +502,8 @@ function frame(now) {
     }
   }
 
-  if (view && G.role) handleCards(view);
+  if (view && G.role) handleCut(view, age, dt);
+  if (view && G.role && !view.cut) handleCards(view);
   updateChest(view);
   if (view && (view.ph === 'over' || view.ph === 'win') && !G.overShown && G.role) gameOver(view);
   if (G.role) G.hint = Math.max(0, G.hint - dt);
@@ -486,6 +514,7 @@ function frame(now) {
     hint: G.hint,
     pressed: G.pressed && performance.now() < G.pressed.until ? G.pressed.i : -1,
     myKey: G.myKey,
+    skip: G.skipHold / SKIP_HOLD,
   };
   render(ctx, cam, view || idleView, age, G.role && view ? G.me : null, fx, time, dt, hud,
     G.role ? input.joystick() : null);

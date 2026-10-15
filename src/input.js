@@ -11,11 +11,14 @@ export function createInput(canvas) {
   let hitTest = null; // (x, y) -> индекс карты или -1
   const touches = new Map(); // pointerId -> { zone, x0, y0, x, y, fired }
   let joy = null;
+  let skipId = null; // палец, который держит кнопку пропуска кат-сцены
 
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
-    canvas.setPointerCapture?.(e.pointerId);
+    try { canvas.setPointerCapture(e.pointerId); } catch {} // захват пальца может не поддерживаться
     const card = hitTest ? hitTest(e.clientX, e.clientY) : -1;
+    if (card === 'skip') { skipId = e.pointerId; return; }
+    if (card === 'cut') return; // во время кат-сцены остальные касания ничего не делают
     if (card !== -1 && card != null) { cards.push(card); return; } // номер карты или 'nitro'
     if (e.pointerType === 'mouse') {
       swings.push({ type: 'point', sx: e.clientX, sy: e.clientY });
@@ -42,6 +45,7 @@ export function createInput(canvas) {
   });
 
   const end = (e) => {
+    if (e.pointerId === skipId) skipId = null;
     const t = touches.get(e.pointerId);
     if (!t) return;
     touches.delete(e.pointerId);
@@ -80,6 +84,7 @@ export function createInput(canvas) {
     takeSwings() { return swings.splice(0); },
     takeCards() { return cards.splice(0); },
     setHitTest(fn) { hitTest = fn; },
+    skipHeld() { return skipId !== null || keys.has('Escape'); },
     joystick() { return joy ? { x0: joy.x0, y0: joy.y0, x: joy.x, y: joy.y, r: JOY_R } : null; },
     clear() { swings.length = 0; cards.length = 0; },
   };

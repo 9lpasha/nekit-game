@@ -117,10 +117,7 @@ export function updateVoyage(s, dt, hooks) {
   s.rocks = s.rocks.filter((r) => !r.hit && r.y < 22);
   s.whirls = s.whirls.filter((w) => w.y < 24);
 
-  if (remaining <= 0) {
-    s.phase = 'win';
-    hooks.emit('win', { score: s.score, wave: s.wave });
-  }
+  if (remaining <= 0) hooks.arrive(); // дальше — финальная кат-сцена, победа после неё
 }
 
 export function snapshotVoyage(s) {

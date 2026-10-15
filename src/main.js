@@ -1,5 +1,5 @@
-import { PLAYER_SPEED, SWING_CD, START_POS, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot } from './sim.js';
+import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, clampToDeck, shotPos } from './const.js';
+import { createState, resetState, step, swing, snapshot, newPlayer } from './sim.js';
 import { computeCamera, screenToWorld, createFx, applyEvent, render } from './render.js';
 import { createInput } from './input.js';
 import { connect } from './net.js';
@@ -26,6 +26,21 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
+
+// iOS Safari игнорирует user-scalable=no, поэтому глушим зум жестами вручную.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => e.preventDefault(), { passive: false });
+}
+document.addEventListener('touchmove', (e) => {
+  if (e.touches.length > 1 || (e.scale && e.scale !== 1)) e.preventDefault();
+}, { passive: false });
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => { // двойной тап
+  const now = Date.now();
+  if (now - lastTouchEnd < 350 && e.target.tagName !== 'INPUT') e.preventDefault();
+  lastTouchEnd = now;
+}, { passive: false });
+document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
 
 // ---------- Состояние сессии ----------
 const G = {
@@ -180,7 +195,7 @@ function startGame(role) {
 function addGuest() {
   G.role = 'host';
   G.state.solo = false;
-  G.state.players.g = { ...START_POS.g, fx: 0, fy: -1 };
+  G.state.players.g = newPlayer('g');
   G.state.banner = 'Напарник на борту!';
   G.state.bannerT = 2;
   show(G.state.phase === 'over' ? 'overlay' : null);
@@ -254,14 +269,21 @@ function nearestThreat(view, age) {
     const d = Math.hypot(p.x - G.me.x, p.y - G.me.y);
     if (d < bd) { bd = d; best = p; }
   }
+  if (best) return best;
+  // Снарядов нет — тянемся к ближайшей доске в воде
+  for (const [, x, y] of view.D || []) {
+    const d = Math.hypot(x - G.me.x, y - G.me.y);
+    if (d < REACH + 0.6 && d < bd) { bd = d; best = { x, y }; }
+  }
   return best;
 }
 
 function updateMe(dt, now, view, age) {
   const me = G.me;
   const v = input.moveVec();
-  me.x += v.x * PLAYER_SPEED * dt;
-  me.y += v.y * PLAYER_SPEED * dt;
+  const speed = PLAYER_SPEED * (1 - WATER_SLOWDOWN * (view.wa || 0) / 100); // по колено в воде бегать тяжелее
+  me.x += v.x * speed * dt;
+  me.y += v.y * speed * dt;
   clampToDeck(me);
   me.swingAge += dt;
   if (Math.hypot(v.x, v.y) > 0.2 && me.swingAge > 0.25) {
@@ -359,7 +381,7 @@ function frame(now) {
 }
 
 // Пустое море на фоне меню
-const idleView = { ph: 'menu', w: 1, sc: 0, hp: 10, P: { h: null, g: null }, E: [], S: [], ban: null };
+const idleView = { ph: 'menu', w: 1, sc: 0, wa: 0, pl: 0, H: [], PT: [], D: [], P: { h: null, g: null }, E: [], S: [], ban: null };
 
 setInterval(async () => {
   if (!G.room || !G.peerId || NET_MODE === 'local') return;

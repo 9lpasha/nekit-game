@@ -13,7 +13,15 @@ export const SWING_ACTIVE = 0.16; // сколько секунд ракетка 
 export const SWING_CD = 0.28;
 export const PERFECT_WINDOW = 0.07;
 
-export const MAX_HP = 10;
+// Пробоины и вода: лодка тонет, когда воды набирается 100%.
+export const LEAK_PER_HOLE = 1.1; // % воды в секунду через одну пробоину
+export const BAIL_RATE = 7; // % в секунду, пока стоишь у ведра
+export const REPAIR_TIME = 0.7; // секунд стоять на пробоине, чтобы залатать
+export const START_PLANKS = 3;
+export const WATER_SLOWDOWN = 0.4; // при полной лодке бегаешь на 40% медленнее
+export const BUCKET = { x: BOAT.x + BOAT.w / 2, y: BOAT.y + BOAT.h - 0.6, r: 0.75 };
+// Доски плывут вдоль бортов — на расстоянии удара ракеткой с палубы.
+export const DEBRIS_LANES = [BOAT.x - 0.55, BOAT.x + BOAT.w + 0.55];
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш
 
 export const TEAM_COLORS = { h: '#ff8a3d', g: '#3db4ff' };
@@ -31,6 +39,10 @@ export function isBoatTile(col, row) {
   if (row === 0) return col === 2 || col === 3;
   if (row === 1) return col >= 1 && col <= 4;
   return true;
+}
+
+export function tileAt(x, y) {
+  return { col: Math.floor(x - BOAT.x), row: Math.floor(y - BOAT.y) };
 }
 
 export function pointInBoat(x, y) {

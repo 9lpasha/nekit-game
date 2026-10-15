@@ -53,7 +53,12 @@ export const sfx = {
         if (ev.perfect) { tone(1046, 0.09, 'square', 0.06); tone(1568, 0.1, 'square', 0.04, 0, 0.05); }
         else tone(620 + ev.charge * 90, 0.08, 'square', 0.06);
         break;
-      case 'boat': tone(120, 0.25, 'sawtooth', 0.09, 0.5); noise(0.15, 0.06); vibrate(80); break;
+      case 'boat':
+        if (ev.drop) { noise(0.25, 0.06); break; }
+        tone(120, 0.25, 'sawtooth', 0.09, 0.5); noise(0.3, 0.08); vibrate(ev.big ? 140 : 80);
+        break;
+      case 'patch': [330, 392, 494].forEach((f, i) => tone(f, 0.06, 'square', 0.04, 0, i * 0.06)); break;
+      case 'loot': tone(784, 0.07, 'square', 0.04); tone(1046, 0.09, 'square', 0.04, 0, 0.07); break;
       case 'splash': noise(0.25, 0.05); break;
       case 'ehit': tone(300, 0.06, 'square', 0.04, 0.7); break;
       case 'kill': tone(520, 0.12, 'square', 0.05, 1.8); break;

@@ -1,7 +1,8 @@
 // Симуляция игры. Её считает только хост; гость получает снимки (snapshot).
 import {
-  BOAT, WORLD_W, MAX_HP, REACH, SWING_ACTIVE, PERFECT_WINDOW, SMASH_CHARGE,
-  START_POS, pointInBoat, shotPos, dist,
+  BOAT, WORLD_W, WORLD_H, REACH, SWING_ACTIVE, PERFECT_WINDOW, SMASH_CHARGE,
+  START_POS, LEAK_PER_HOLE, BAIL_RATE, REPAIR_TIME, START_PLANKS, BUCKET, DEBRIS_LANES,
+  pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
@@ -20,11 +21,16 @@ export function createState(solo) {
     solo,
     wave: 0,
     score: 0,
-    hp: MAX_HP,
+    water: 0, // 0–100 %
+    holes: [], // { col, row }
+    patches: [], // залатанные места — только для красоты
+    planks: START_PLANKS,
+    debris: [], // плывущие доски { id, x, y, lane }
+    debrisTimer: 2,
     resets: 0,
     players: {
-      h: { ...START_POS.h, fx: 0, fy: -1 },
-      g: solo ? null : { ...START_POS.g, fx: 0, fy: -1 },
+      h: newPlayer('h'),
+      g: solo ? null : newPlayer('g'),
     },
     swings: {},
     enemies: [],
@@ -37,6 +43,10 @@ export function createState(solo) {
     banner: 'Приготовьтесь!',
     bannerT: 1.5,
   };
+}
+
+export function newPlayer(key) {
+  return { ...START_POS[key], fx: 0, fy: -1, repair: 0, bail: false };
 }
 
 export function resetState(s) {
@@ -165,17 +175,22 @@ function reflect(s, shot, key, sw) {
 function arrive(s, shot) {
   if (shot.owner === 'e' || shot.passTo) {
     // Не отбили — снаряд падает на палубу.
-    if (pointInBoat(shot.tx, shot.ty)) {
-      const dmg = shot.owner === 'e' ? shot.dmg : 1;
-      s.hp = Math.max(0, s.hp - dmg);
-      emit(s, 'boat', { x: shot.tx, y: shot.ty, dmg, drop: !!shot.passTo });
-      if (s.hp <= 0 && s.phase === 'play') {
-        s.phase = 'over';
-        emit(s, 'over', { score: s.score, wave: s.wave });
-      }
-    } else {
-      emit(s, 'splash', { x: shot.tx, y: shot.ty });
+    if (!pointInBoat(shot.tx, shot.ty)) { emit(s, 'splash', { x: shot.tx, y: shot.ty }); return; }
+    if (shot.passTo) {
+      // Уроненный мяч не пробивает дно, но плещет воду.
+      addWater(s, 5);
+      emit(s, 'boat', { x: shot.tx, y: shot.ty, drop: true });
+      return;
     }
+    const { col, row } = tileAt(shot.tx, shot.ty);
+    const exists = s.holes.some((h) => h.col === col && h.row === row);
+    if (exists) addWater(s, 6 * shot.dmg); // в ту же дыру — просто заливает
+    else {
+      s.holes.push({ col, row });
+      s.patches = s.patches.filter((p) => p.col !== col || p.row !== row);
+      if (shot.dmg > 1) addWater(s, 8);
+    }
+    emit(s, 'boat', { x: shot.tx, y: shot.ty, hole: !exists, big: shot.dmg > 1 });
     return;
   }
   // Удар игрока долетел: урон врагам рядом с точкой попадания.
@@ -193,15 +208,75 @@ function arrive(s, shot) {
       emit(s, 'kill', { x: e.x, y: e.y, pts, kind: e.kind });
     }
   }
+  for (const e of s.enemies) if (e.hp <= 0 && Math.random() < 0.4) dropDebris(s, e.x, e.y);
   s.enemies = s.enemies.filter((e) => e.hp > 0);
   if (shot.smash) emit(s, 'smash', { x: shot.tx, y: shot.ty, r });
   else if (!hitAny) emit(s, 'splash', { x: shot.tx, y: shot.ty });
+}
+
+function addWater(s, amount) {
+  s.water = Math.min(100, s.water + amount);
+}
+
+// Доска выплывает сверху вдоль борта или падает с разбитого плота и дрейфует к борту.
+function dropDebris(s, x, y) {
+  const lane = x < BOAT.x + BOAT.w / 2 ? 0 : 1;
+  s.debris.push({ id: s.nextId++, x, y, lane });
+}
+
+function updateDebris(s, dt) {
+  s.debrisTimer -= dt;
+  if (s.debrisTimer <= 0) {
+    // Чем больше дыр и меньше досок, тем чаще приплывают новые.
+    const need = s.holes.length > s.planks ? 0.6 : 1;
+    s.debrisTimer = rand(4, 6.5) * need;
+    const lane = Math.random() < 0.5 ? 0 : 1;
+    s.debris.push({ id: s.nextId++, x: DEBRIS_LANES[lane], y: -1, lane });
+  }
+  for (const d of s.debris) {
+    const lx = DEBRIS_LANES[d.lane];
+    d.x += Math.sign(lx - d.x) * Math.min(Math.abs(lx - d.x), 1.5 * dt);
+    d.y += 1.3 * dt;
+  }
+  s.debris = s.debris.filter((d) => d.y < WORLD_H + 1);
+}
+
+// Ремонт и ведро — по тому, где стоят игроки.
+function updateCrew(s, dt) {
+  for (const key of ['h', 'g']) {
+    const p = s.players[key];
+    if (!p) continue;
+    p.bail = dist(p.x, p.y, BUCKET.x, BUCKET.y) < BUCKET.r;
+    if (p.bail && s.water > 0) s.water = Math.max(0, s.water - BAIL_RATE * dt);
+
+    const { col, row } = tileAt(p.x, p.y);
+    const hi = s.holes.findIndex((h) => h.col === col && h.row === row);
+    if (hi < 0 || s.planks <= 0) { p.repair = 0; continue; }
+    p.repair += dt / REPAIR_TIME;
+    if (p.repair >= 1) {
+      p.repair = 0;
+      s.holes.splice(hi, 1);
+      s.patches.push({ col, row });
+      s.planks--;
+      s.score += 5;
+      emit(s, 'patch', { x: BOAT.x + col + 0.5, y: BOAT.y + row + 0.5, key });
+    }
+  }
 }
 
 export function step(s, dt) {
   s.t += dt;
   if (s.bannerT > 0) s.bannerT -= dt;
   if (s.phase !== 'play') return;
+
+  updateDebris(s, dt);
+  updateCrew(s, dt);
+  addWater(s, s.holes.length * LEAK_PER_HOLE * dt);
+  if (s.water >= 100) {
+    s.phase = 'over';
+    emit(s, 'over', { score: s.score, wave: s.wave });
+    return;
+  }
 
   // Волны
   if (s.breakTimer > 0) {
@@ -270,6 +345,14 @@ export function step(s, dt) {
       if (d > 0.4 && (vx * sw.dx + vy * sw.dy) / d < -0.35) continue; // мяч за спиной
       reflect(s, sh, key, sw);
     }
+    // Ловим доски ракеткой
+    for (const d of s.debris) {
+      if (d.got || dist(d.x, d.y, p.x, p.y) > reach + 0.15) continue;
+      d.got = true;
+      s.planks++;
+      emit(s, 'loot', { x: d.x, y: d.y, key });
+    }
+    s.debris = s.debris.filter((d) => !d.got);
   }
 
   const done = s.shots.filter((sh) => sh.t >= sh.dur);
@@ -283,14 +366,18 @@ export function snapshot(s) {
     const p = s.players[key];
     if (!p) return null;
     const sw = s.swings[key];
-    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1];
+    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0];
   };
   return {
     t: s.t,
     ph: s.phase,
     w: s.wave,
     sc: s.score,
-    hp: s.hp,
+    wa: s.water,
+    pl: s.planks,
+    H: s.holes.map((h) => [h.col, h.row]),
+    PT: s.patches.map((h) => [h.col, h.row]),
+    D: s.debris.map((d) => [d.id, d.x, d.y]),
     rs: s.resets,
     ban: s.bannerT > 0 ? s.banner : null,
     P: { h: pl('h'), g: pl('g') },

@@ -1,18 +1,13 @@
 // Отрисовка на Canvas 2D. Мир рисуется в «блоках», камера вписывает поле 12×20 в экран.
 import {
-  WORLD_W, WORLD_H, BOAT, MAX_HP, REACH, TEAM_COLORS, CHARGE_COLORS,
-  isBoatTile, shotPos, lerp,
+  WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET,
+  isBoatTile, tileAt, shotPos, lerp,
 } from './const.js';
 
 const FONT = '"Press Start 2P", system-ui, monospace';
 
-// Детерминированный «рандом», чтобы трещины и пена не прыгали между кадрами.
+// Детерминированный «рандом», чтобы пена и края дыр не прыгали между кадрами.
 const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
-
-// Трещины в досках: по одной на каждое потерянное очко прочности.
-const CRACKS = [];
-for (let row = 2; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) CRACKS.push({ col, row });
-CRACKS.sort((a, b) => hash(a.col * 31 + a.row * 7) - hash(b.col * 31 + b.row * 7));
 
 export function computeCamera(w, h) {
   const top = Math.min(110, h * 0.12);
@@ -49,10 +44,25 @@ export function applyEvent(fx, ev) {
       else if (ev.pass) text(fx, ev.x, ev.y - 0.6, 'ПАС ×' + ev.charge, '#bfe6ff', 0.3);
       break;
     case 'boat':
+      if (ev.drop) {
+        burst(fx, ev.x, ev.y, '#a8dcff', 10, 2.5, 0.08, 0.5);
+        text(fx, ev.x, ev.y - 0.5, 'УРОНИЛИ!', '#ff5a5a', 0.32);
+        fx.shake = Math.max(fx.shake, 0.15);
+        break;
+      }
       burst(fx, ev.x, ev.y, '#8a5a2b', 12, 3.5, 0.11, 0.6);
-      burst(fx, ev.x, ev.y, '#d9a46a', 6, 2.5, 0.07, 0.5);
-      text(fx, ev.x, ev.y - 0.5, ev.drop ? 'УРОНИЛИ!' : '-' + ev.dmg, '#ff5a5a', 0.34);
-      fx.shake = Math.max(fx.shake, 0.25 * ev.dmg);
+      burst(fx, ev.x, ev.y, '#a8dcff', 8, 2.5, 0.07, 0.5);
+      text(fx, ev.x, ev.y - 0.5, ev.hole ? 'ПРОБОИНА!' : 'ЗАЛИВАЕТ!', '#ff5a5a', 0.3);
+      fx.shake = Math.max(fx.shake, ev.big ? 0.45 : 0.25);
+      break;
+    case 'patch':
+      burst(fx, ev.x, ev.y, '#d9a46a', 12, 3, 0.1, 0.5);
+      text(fx, ev.x, ev.y - 0.6, 'ЗАЛАТАЛИ!', '#7dff6a', 0.3);
+      break;
+    case 'loot':
+      burst(fx, ev.x, ev.y, '#d9a46a', 10, 3, 0.09, 0.5);
+      ring(fx, ev.x, ev.y, '#ffe14d', 0.8, 0.3);
+      text(fx, ev.x, ev.y - 0.5, '+1 ДОСКА', '#ffe14d', 0.28);
       break;
     case 'splash':
       burst(fx, ev.x, ev.y, '#a8dcff', 9, 2.5, 0.07, 0.45);
@@ -142,7 +152,7 @@ function drawWater(ctx, cam, time) {
   ctx.globalAlpha = 1;
 }
 
-function drawBoat(ctx, hp) {
+function drawBoat(ctx, view, time) {
   // Тень
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   for (let row = 0; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) {
@@ -172,22 +182,94 @@ function drawBoat(ctx, hp) {
     if (!isBoatTile(col, row - 1)) ctx.fillRect(x, y, 1, b);
     if (!isBoatTile(col, row + 1)) ctx.fillRect(x, y + 1 - b, 1, b);
   }
-  // Трещины от попаданий
-  ctx.strokeStyle = '#2b1a0c';
-  ctx.lineWidth = 0.07;
-  const n = Math.min(CRACKS.length, MAX_HP - hp);
-  for (let i = 0; i < n; i++) {
-    const { col, row } = CRACKS[i];
-    const x = BOAT.x + col + 0.5, y = BOAT.y + row + 0.5;
-    const r = hash(i + 3) * Math.PI;
-    ctx.beginPath();
-    ctx.moveTo(x - Math.cos(r) * 0.35, y - Math.sin(r) * 0.35);
-    ctx.lineTo(x + 0.06, y - 0.05);
-    ctx.lineTo(x + Math.cos(r) * 0.33, y + Math.sin(r) * 0.3);
-    ctx.moveTo(x + 0.06, y - 0.05);
-    ctx.lineTo(x + Math.cos(r + 1.4) * 0.25, y + Math.sin(r + 1.4) * 0.25);
-    ctx.stroke();
+  // Заплатки — светлые доски с гвоздями, как блок в кубическом мире
+  for (const [col, row] of view.PT || []) {
+    const x = BOAT.x + col + 0.12, y = BOAT.y + row + 0.12;
+    ctx.fillStyle = '#c99a5b';
+    ctx.fillRect(x, y, 0.76, 0.76);
+    ctx.fillStyle = '#e0b878';
+    ctx.fillRect(x, y, 0.76, 0.12);
+    ctx.fillStyle = 'rgba(0,0,0,0.15)';
+    ctx.fillRect(x, y + 0.36, 0.76, 0.04);
+    ctx.fillStyle = '#3a3a3a';
+    for (const [nx, ny] of [[0.08, 0.08], [0.6, 0.08], [0.08, 0.6], [0.6, 0.6]]) ctx.fillRect(x + nx, y + ny, 0.08, 0.08);
   }
+
+  // Пробоины: рваная дыра, в ней вода, пузыри
+  for (const [col, row] of view.H || []) {
+    const cx = BOAT.x + col + 0.5, cy = BOAT.y + row + 0.5;
+    const seed = col * 13 + row * 7;
+    ctx.fillStyle = '#2b1a0c';
+    ctx.beginPath();
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const r = 0.3 + hash(seed + i) * 0.12;
+      ctx.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#1d5f99';
+    ctx.beginPath(); ctx.arc(cx, cy, 0.24, 0, Math.PI * 2); ctx.fill();
+    const b = (time * 1.5 + hash(seed)) % 1;
+    ctx.fillStyle = `rgba(200,235,255,${1 - b})`;
+    ctx.fillRect(cx - 0.1 + hash(seed + 3) * 0.12, cy + 0.1 - b * 0.25, 0.07, 0.07);
+    ctx.fillRect(cx + 0.06 - hash(seed + 5) * 0.1, cy + 0.05 - ((b + 0.5) % 1) * 0.25, 0.05, 0.05);
+  }
+
+  // Ведро на корме
+  const bx = BUCKET.x, by = BUCKET.y;
+  ctx.fillStyle = 'rgba(255,255,255,0.08)';
+  ctx.beginPath(); ctx.arc(bx, by, BUCKET.r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#5c6670';
+  ctx.fillRect(bx - 0.22, by - 0.2, 0.44, 0.4);
+  ctx.fillStyle = '#8a96a3';
+  ctx.fillRect(bx - 0.26, by - 0.24, 0.52, 0.1);
+  ctx.fillStyle = '#2e6da4';
+  ctx.fillRect(bx - 0.18, by - 0.14, 0.36, 0.12);
+
+  // Вода в лодке: чем больше, тем гуще синий слой поверх палубы
+  const wa = view.wa || 0;
+  if (wa > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.12 + (wa / 100) * 0.5;
+    ctx.fillStyle = wa > 70 ? '#1f6fb5' : '#2f86c9';
+    for (let row = 0; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) {
+      if (isBoatTile(col, row)) ctx.fillRect(BOAT.x + col + 0.08, BOAT.y + row + 0.08, 0.84, 0.84);
+    }
+    ctx.globalAlpha = Math.min(0.5, wa / 120);
+    ctx.strokeStyle = '#cde9ff';
+    ctx.lineWidth = 0.05;
+    for (let i = 0; i < 6; i++) {
+      const y = BOAT.y + 2.5 + ((i * 1.3 + time * 0.6) % 7.3);
+      ctx.beginPath();
+      ctx.moveTo(BOAT.x + 0.4 + hash(i) * 2, y);
+      ctx.lineTo(BOAT.x + 1.4 + hash(i) * 3, y + Math.sin(time * 3 + i) * 0.05);
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function drawDebris(ctx, d, time) {
+  const bob = Math.sin(time * 3 + d.id) * 0.05;
+  const x = d.x, y = d.y + bob;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(Math.sin(time * 1.3 + d.id) * 0.25);
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(-0.36, -0.08, 0.8, 0.3);
+  ctx.fillStyle = '#c99a5b';
+  ctx.fillRect(-0.42, -0.14, 0.84, 0.28);
+  ctx.fillStyle = '#e0b878';
+  ctx.fillRect(-0.42, -0.14, 0.84, 0.07);
+  ctx.fillStyle = 'rgba(0,0,0,0.2)';
+  ctx.fillRect(-0.1, -0.14, 0.04, 0.28);
+  ctx.restore();
+  // Мерцающее кольцо, чтобы доску было видно на воде
+  ctx.globalAlpha = 0.5 + 0.3 * Math.sin(time * 6 + d.id);
+  ctx.strokeStyle = '#ffe14d';
+  ctx.lineWidth = 0.04;
+  ctx.beginPath(); ctx.arc(x, y, 0.55, 0, Math.PI * 2); ctx.stroke();
+  ctx.globalAlpha = 1;
 }
 
 function shade(hex, k) {
@@ -243,6 +325,20 @@ function drawPlayer(ctx, cam, p, color, label) {
   ctx.beginPath(); ctx.arc(rx, ry, 0.23, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#d6262f';
   ctx.beginPath(); ctx.arc(rx, ry, 0.19, 0, Math.PI * 2); ctx.fill();
+
+  if (p.repair > 0) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 0.12;
+    ctx.beginPath(); ctx.arc(x, y - 0.95, 0.2, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#7dff6a';
+    ctx.beginPath(); ctx.arc(x, y - 0.95, 0.2, -Math.PI / 2, -Math.PI / 2 + p.repair * Math.PI * 2); ctx.stroke();
+  }
+  if (p.bail) {
+    // Выплёскиваем воду за борт
+    const t = (performance.now() / 400) % 1;
+    ctx.fillStyle = `rgba(160,215,255,${1 - t})`;
+    for (let i = 0; i < 3; i++) ctx.fillRect(x + 0.3 + t * 0.8 + i * 0.1, y - 0.4 - Math.sin(t * Math.PI) * 0.6 + i * 0.08, 0.09, 0.09);
+  }
 
   if (label) worldText(ctx, cam, label, x, y - 0.66, 0.26, color);
 }
@@ -407,26 +503,38 @@ function drawHud(ctx, cam, view, hud, joy) {
   const pad = 14;
   const sz = Math.max(10, Math.min(16, W / 32));
 
-  // Прочность лодки
-  const segW = Math.min(22, (W - 2 * pad - 20) / MAX_HP - 3);
-  const total = MAX_HP * (segW + 3) - 3;
-  const bx = (W - total) / 2, by = pad + sz + 8;
-  outlined(ctx, 'ЛОДКА', W / 2, pad + sz, sz * 0.8, '#ffe9c4');
-  for (let i = 0; i < MAX_HP; i++) {
-    const on = i < view.hp;
-    const col = view.hp > 6 ? '#58d36b' : view.hp > 3 ? '#ffc93d' : '#ff4d5e';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(bx + i * (segW + 3) - 1, by - 1, segW + 2, 14);
-    ctx.fillStyle = on ? col : '#3a2a20';
-    ctx.fillRect(bx + i * (segW + 3), by, segW, 12);
-  }
+  // Вода в лодке
+  const wa = view.wa || 0;
+  const barW = Math.min(240, W - 2 * pad - 120);
+  const bx = (W - barW) / 2, by = pad + sz + 8;
+  const danger = wa > 70;
+  const blink = danger && Math.sin(performance.now() / 90) > 0;
+  outlined(ctx, 'ВОДА ' + Math.floor(wa) + '%', W / 2, pad + sz, sz * 0.8, danger ? '#ff6b6b' : '#bfe6ff');
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(bx - 2, by - 2, barW + 4, 16);
+  ctx.fillStyle = '#3a2a20';
+  ctx.fillRect(bx, by, barW, 12);
+  ctx.fillStyle = blink ? '#ff4d5e' : wa > 40 ? '#2f86c9' : '#4da6ff';
+  ctx.fillRect(bx, by, (barW * wa) / 100, 12);
+  ctx.fillStyle = 'rgba(255,255,255,0.25)';
+  ctx.fillRect(bx, by, (barW * wa) / 100, 3);
+
+  // Доски и пробоины
+  const holes = (view.H || []).length;
+  const iy = by + 34;
+  ctx.fillStyle = '#c99a5b';
+  ctx.fillRect(pad, iy - 11, 24, 10);
+  ctx.fillStyle = '#e0b878';
+  ctx.fillRect(pad, iy - 11, 24, 3);
+  outlined(ctx, '×' + (view.pl ?? 0), pad + 30, iy, sz * 0.75, view.pl ? '#ffe9c4' : '#ff6b6b', 'left');
+  if (holes) outlined(ctx, 'ДЫР: ' + holes, W - pad, iy, sz * 0.75, '#ff9a7a', 'right');
 
   outlined(ctx, 'ВОЛНА ' + Math.max(1, view.w), pad, pad + sz, sz * 0.8, '#bfe6ff', 'left');
   outlined(ctx, String(view.sc), W - pad, pad + sz, sz * 0.9, '#ffe14d', 'right');
 
   // Счётчик розыгрыша, пока пас в воздухе
   const pass = view.S.find((s) => s[11]);
-  if (pass) outlined(ctx, 'РОЗЫГРЫШ ×' + pass[3], W / 2, by + 36, sz * 0.75, CHARGE_COLORS[Math.min(pass[3], 5)]);
+  if (pass) outlined(ctx, 'РОЗЫГРЫШ ×' + pass[3], W / 2, by + 52, sz * 0.75, CHARGE_COLORS[Math.min(pass[3], 5)]);
 
   if (view.ban) {
     const pulse = 1 + Math.sin(performance.now() / 120) * 0.03;
@@ -473,7 +581,11 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   const k = cam.dpr;
   ctx.setTransform(cam.s * k, 0, 0, cam.s * k, (cam.ox + shx) * k, (cam.oy + shy) * k);
 
-  drawBoat(ctx, view.hp);
+  drawBoat(ctx, view, time);
+  for (const d of view.D || []) {
+    const p = smoothed('d' + d[0], d[1], d[2], dt);
+    drawDebris(ctx, { id: d[0], x: p.x, y: p.y }, time);
+  }
 
   for (const o of smooth.values()) o.seen = false;
   for (const e of view.E) {
@@ -486,10 +598,10 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
     const arr = view.P[key];
     if (!arr) continue;
     let p;
-    if (me && key === me.key) p = me;
+    if (me && key === me.key) p = { ...me, repair: arr[7], bail: arr[8] };
     else {
       const sp = smoothed('p' + key, arr[0], arr[1], dt);
-      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6] };
+      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6], repair: arr[7], bail: arr[8] };
     }
     drawPlayer(ctx, cam, p, TEAM_COLORS[key], me && key === me.key ? 'ТЫ' : null);
   }
@@ -497,6 +609,15 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   for (const s of view.S) {
     const [id, owner, kind, charge, x0, y0, tx, ty, t, dur, arc, passTo, smash] = s;
     drawShot(ctx, { id, owner, kind, charge, x0, y0, tx, ty, t, dur, arc, passTo, smash }, age, time, me && me.key);
+  }
+
+  // Подсказка: стоишь на дыре, а досок нет
+  if (me && view.ph === 'play' && !view.pl) {
+    const { col, row } = tileAt(me.x, me.y);
+    if ((view.H || []).some(([c, r]) => c === col && r === row)) {
+      worldText(ctx, cam, 'НЕТ ДОСОК!', me.x, me.y - 1.05, 0.26, '#ff6b6b');
+      worldText(ctx, cam, 'лови их ракеткой у борта', me.x, me.y + 0.95, 0.2, '#ffe9c4');
+    }
   }
 
   drawFx(ctx, cam, fx);

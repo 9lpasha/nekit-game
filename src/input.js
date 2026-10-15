@@ -1,6 +1,7 @@
 // Управление.
 // Телефон: левая половина экрана — джойстик, правая — свайп (удар в сторону свайпа) или тап (автоудар).
-// Компьютер: WASD/стрелки — бег, клик мышью — удар в сторону курсора, пробел — автоудар.
+// Удержание пальца справа (без свайпа) — бросок ракетки. Компьютер: WASD/стрелки — бег,
+// клик — удар в сторону курсора, правая кнопка — бросок к курсору, пробел — автоудар, Q — бросок, R — ярость, N — нитро.
 const JOY_R = 55;
 const SWIPE_MIN = 22;
 
@@ -20,13 +21,17 @@ export function createInput(canvas) {
     if (card === 'skip') { skipId = e.pointerId; return; }
     if (card === 'cut') return; // во время кат-сцены остальные касания ничего не делают
     if (card !== -1 && card != null) { cards.push(card); return; } // номер карты или 'nitro'
+    if (e.pointerType === 'mouse' && e.button === 2) {
+      swings.push({ type: 'throwPoint', sx: e.clientX, sy: e.clientY });
+      return;
+    }
     if (e.pointerType === 'mouse') {
       swings.push({ type: 'point', sx: e.clientX, sy: e.clientY });
       return;
     }
     const zone = e.clientX < innerWidth / 2 ? 'joy' : 'swipe';
     if (zone === 'joy' && joy) return; // второй палец слева игнорируем
-    const t = { zone, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, fired: false };
+    const t = { zone, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, fired: false, at: performance.now() };
     touches.set(e.pointerId, t);
     if (zone === 'joy') joy = t;
   });
@@ -50,9 +55,11 @@ export function createInput(canvas) {
     if (!t) return;
     touches.delete(e.pointerId);
     if (t === joy) joy = null;
-    if (t.zone === 'swipe' && !t.fired) swings.push({ type: 'auto' });
+    // долгое удержание без свайпа — бросок ракетки, короткий тап — автоудар
+    if (t.zone === 'swipe' && !t.fired) swings.push({ type: performance.now() - t.at > 330 ? 'throw' : 'auto' });
   };
   canvas.addEventListener('pointerup', end);
+  canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointercancel', end);
 
   addEventListener('keydown', (e) => {
@@ -62,6 +69,8 @@ export function createInput(canvas) {
     const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
     if (digit >= 0 && !e.repeat) cards.push(digit);
     if (e.code === 'KeyN' && !e.repeat) cards.push('nitro');
+    if (e.code === 'KeyR' && !e.repeat) cards.push('rage');
+    if (e.code === 'KeyQ' && !e.repeat) swings.push({ type: 'throw' });
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());

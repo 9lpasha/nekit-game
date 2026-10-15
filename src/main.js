@@ -1,8 +1,8 @@
 import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, DIFFICULTY, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut } from './sim.js';
+import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut, hostThrow, hostRage } from './sim.js';
 import { cutCues, skipButton, SKIP_HOLD } from './cutscene.js';
 import { loadProgress, saveProgress, shellsFor, perkCost, buyPerk, pickSkin, skinColor, mergePerks } from './progress.js';
-import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton } from './render.js';
+import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout, nitroButton, rageButton } from './render.js';
 import { createInput } from './input.js';
 import { connect } from './net.js';
 import { sfx } from './sfx.js';
@@ -40,6 +40,10 @@ input.setHitTest((x, y) => {
   if (!G.role || !G.view?.hand) return -1;
   const nb = nitroButton(cam);
   if ((G.view.ni > 0 || G.view.nT > 0) && Math.hypot(x - nb.x, y - nb.y) < nb.r + 8) return 'nitro';
+  const rb = rageButton(cam);
+  const mine = G.view.P?.[G.myKey];
+  // кнопка ярости ловит касание, только когда шкала полная — иначе там работает джойстик
+  if (mine && mine[11] >= 100 && !(mine[12] > 0) && Math.hypot(x - rb.x, y - rb.y) < rb.r + 8) return 'rage';
   return cardLayout(cam).cards.findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y - 6 && y <= r.y + r.h + 6);
 });
 
@@ -135,6 +139,7 @@ function setupActions(room) {
     const g = G.state?.players.g;
     if (G.role !== 'host' || id !== G.peerId || !g) return;
     [g.x, g.y, g.fx, g.fy, g.steer = 0] = d;
+    g.full = !!d[5];
   });
   a.swing.on((d, id) => {
     if (G.role !== 'host' || id !== G.peerId || !G.state.players.g) return;
@@ -147,6 +152,8 @@ function setupActions(room) {
     else if (d.c === 'pick') hostPickChest(G.state, d.k, 'g');
     else if (d.c === 'nitro') requestNitro(G.state, 'g');
     else if (d.c === 'skip') skipCut(G.state);
+    else if (d.c === 'throw') hostThrow(G.state, 'g', d.dx || 0, d.dy || 0);
+    else if (d.c === 'rage') hostRage(G.state, 'g');
     else if (d.c === 'perks') {
       // Улучшения и раскраска гостя: берём лучшее из двух
       G.guestPerks = d.perks || {};
@@ -326,6 +333,13 @@ function handleCut(view, age, dt) {
 // ---------- Карты и сундук ----------
 function handleCards(view) {
   for (const i of input.takeCards()) {
+    if (i === 'rage') {
+      if (view.ph === 'play') {
+        if (G.role === 'guest') G.actions.cmd.send({ c: 'rage' }, G.peerId);
+        else hostRage(G.state, 'h');
+      }
+      continue;
+    }
     if (i === 'nitro') {
       if (view.ni > 0 && view.ph === 'play') {
         if (G.role === 'guest') G.actions.cmd.send({ c: 'nitro' }, G.peerId);
@@ -411,11 +425,13 @@ function updateMe(dt, now, view, age) {
   const atHelm = Math.hypot(me.x - HELM.x, me.y - HELM.y) < HELM.r && v.y < 0.5;
   if (atHelm) {
     me.steer = Math.abs(v.x) > 0.15 ? v.x : 0;
+    me.full = v.y < -0.5; // джойстик вверх — полный ход (быстрее, но громко)
     me.x += (HELM.x - me.x) * Math.min(1, dt * 12);
     me.y += Math.max(0, v.y) * speed * dt;
     if (me.swingAge > 0.25) { me.fx = 0; me.fy = -1; }
   } else {
     me.steer = 0;
+    me.full = false;
     me.x += v.x * speed * dt;
     me.y += v.y * speed * dt;
   }
@@ -427,8 +443,20 @@ function updateMe(dt, now, view, age) {
     me.fx = v.x / l; me.fy = v.y / l;
   }
 
+  const mine = view.P?.[G.myKey];
+  const thrown = !!mine?.[13];
+  const rageOn = (mine?.[12] || 0) > 0;
   for (const sw of input.takeSwings()) {
-    if (now / 1000 - me.lastSwing < SWING_CD || view.ph !== 'play') continue;
+    if (view.ph !== 'play') continue;
+    if (sw.type === 'throw' || sw.type === 'throwPoint') {
+      // Бросок ракетки: к курсору или автоприцел в ближайшего врага (dx = dy = 0)
+      let tx = 0, ty = 0;
+      if (sw.type === 'throwPoint') { const w = screenToWorld(cam, sw.sx, sw.sy); tx = w.x - me.x; ty = w.y - me.y; }
+      if (G.role === 'guest') G.actions.cmd.send({ c: 'throw', dx: tx, dy: ty }, G.peerId);
+      else hostThrow(G.state, 'h', tx, ty);
+      continue;
+    }
+    if (thrown || now / 1000 - me.lastSwing < SWING_CD * (rageOn ? 0.5 : 1)) continue;
     let dx, dy;
     if (sw.type === 'dir') { dx = sw.dx; dy = sw.dy; }
     else if (sw.type === 'point') {
@@ -468,7 +496,7 @@ function frame(now) {
     const s = G.state;
     if (view.cut) input.clear(); else updateMe(dt, now, view, 0);
     const p = s.players.h;
-    p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy; p.steer = G.me.steer;
+    p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy; p.steer = G.me.steer; p.full = G.me.full;
     acc += dt;
     while (acc >= SIM_STEP) { step(s, SIM_STEP); acc -= SIM_STEP; }
     for (const ev of s.events) {
@@ -497,7 +525,7 @@ function frame(now) {
       if (now - G.lastSend >= SEND_EVERY) {
         G.lastSend = now;
         const r = (n) => Math.round(n * 1000) / 1000;
-        G.actions.input.send([r(G.me.x), r(G.me.y), r(G.me.fx), r(G.me.fy), r(G.me.steer)], G.peerId);
+        G.actions.input.send([r(G.me.x), r(G.me.y), r(G.me.fx), r(G.me.fy), r(G.me.steer), G.me.full ? 1 : 0], G.peerId);
       }
       // Настоящий разрыв ловит room.onLeave; тут только предупреждаем о задержке (хост свернул игру и т.п.)
       if (age > 1.5) view = { ...view, ban: 'Связь прерывается…' };

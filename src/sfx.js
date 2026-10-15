@@ -75,6 +75,16 @@ export const sfx = {
       case 'pop': tone(500, 0.08, 'square', 0.04, 1.5); break;
       case 'fire': noise(0.8, 0.04); break;
       case 'click': tone(1200, 0.03, 'square', 0.04); tone(900, 0.03, 'square', 0.04, 0, 0.06); break;
+      case 'rage': tone(80, 0.6, 'sawtooth', 0.12, 2.5); noise(0.4, 0.1); vibrate(200); break;
+      case 'rthrow': noise(0.15, 0.05); tone(500, 0.2, 'triangle', 0.04, 0.4); break;
+      case 'rhit': tone(1400, 0.06, 'square', 0.04, 0.6); break;
+      case 'rcatch': tone(180, 0.1, 'square', 0.07, 0.5); vibrate(40); break;
+      case 'alert': tone(900, 0.05, 'square', 0.04); tone(1200, 0.06, 'square', 0.04, 0, 0.06); break;
+      case 'sneak': tone(330, 0.15, 'sine', 0.03); break;
+      case 'plane': tone(70, 2.2, 'sawtooth', 0.04, 1.3); break;
+      case 'drop': tone(600, 0.3, 'triangle', 0.04, 0.5); break;
+      case 'droploot': [523, 784, 1046, 1318, 1568].forEach((f, i) => tone(f, 0.12, 'square', 0.05, 0, i * 0.08)); vibrate(120); break;
+      case 'droplost': tone(220, 0.4, 'triangle', 0.05, 0.6); break;
       case 'gull': tone(1300, 0.12, 'triangle', 0.03, 0.7); tone(1500, 0.1, 'triangle', 0.025, 0.7, 0.14); break;
       case 'tick': tone(1000, 0.03, 'square', 0.04); break;
       case 'shoot': tone(2200, 0.4, 'sine', 0.03, 0.3); break;

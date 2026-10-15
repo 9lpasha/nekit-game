@@ -73,15 +73,15 @@ export const SKINS = [
 export const DIFFICULTY = {
   easy: {
     name: 'Лёгкая', icon: '🌤️', desc: 'Меньше зомби, снаряды медленнее, лодка течёт слабее. Ракушек ×0.7',
-    fire: 1.4, shot: 1.2, count: 0.7, leak: 0.7, rocks: 1.5, storm: -0.15, bossHp: 0.75, planks: 2, elixir: 1.2, shells: 0.7,
+    fire: 1.4, shot: 1.2, count: 0.7, leak: 0.7, rocks: 1.5, storm: -0.15, bossHp: 0.75, planks: 2, elixir: 1.2, shells: 0.7, hear: 0.75, hunt: 0.15,
   },
   normal: {
     name: 'Нормальная', icon: '⛵', desc: 'Как задумано',
-    fire: 1, shot: 1, count: 1, leak: 1, rocks: 1, storm: 0, bossHp: 1, planks: 0, elixir: 1, shells: 1,
+    fire: 1, shot: 1, count: 1, leak: 1, rocks: 1, storm: 0, bossHp: 1, planks: 0, elixir: 1, shells: 1, hear: 1, hunt: 0.25,
   },
   hard: {
     name: 'Сложная', icon: '🌪️', desc: 'Больше зомби, быстрые снаряды, злой шторм и крепкие боссы. Ракушек ×1.5',
-    fire: 0.8, shot: 0.88, count: 1.3, leak: 1.25, rocks: 0.75, storm: 0.1, bossHp: 1.3, planks: 0, elixir: 0.9, shells: 1.5,
+    fire: 0.8, shot: 0.88, count: 1.3, leak: 1.25, rocks: 0.75, storm: 0.1, bossHp: 1.3, planks: 0, elixir: 0.9, shells: 1.5, hear: 1.7, hunt: 0.5,
   },
 };
 

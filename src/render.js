@@ -151,6 +151,39 @@ export function applyEvent(fx, ev) {
     case 'chase':
       fx.shake = Math.max(fx.shake, 0.4);
       break;
+    case 'rage':
+      text(fx, ev.x, ev.y - 1.2, 'ЯРОСТЬ!', '#ff3a2a', 0.5, 1.4);
+      burst(fx, ev.x, ev.y, '#ff6040', 24, 5, 0.1, 0.7);
+      ring(fx, ev.x, ev.y, '#ff3a2a', 2.2, 0.5);
+      fx.shake = Math.max(fx.shake, 0.4);
+      break;
+    case 'rthrow':
+      burst(fx, ev.x, ev.y, '#aee6ff', 6, 3, 0.07, 0.3);
+      break;
+    case 'rhit':
+      burst(fx, ev.x, ev.y, '#d8f4ff', 10, 4, 0.08, 0.4);
+      ring(fx, ev.x, ev.y, '#aee6ff', 0.8, 0.25);
+      break;
+    case 'rcatch':
+      ring(fx, ev.x, ev.y, '#aee6ff', 0.7, 0.25);
+      break;
+    case 'alert':
+      text(fx, ev.x, ev.y - 0.9, '!', '#ff4d4d', 0.5, 0.9);
+      break;
+    case 'sneak':
+      text(fx, ev.x, ev.y, 'проскочили тихо +5', '#c8d0d8', 0.22, 1.2);
+      break;
+    case 'drop':
+      burst(fx, ev.x, ev.y, '#ff6a2a', 8, 2, 0.08, 0.5);
+      break;
+    case 'droploot':
+      text(fx, ev.x, ev.y - 0.8, 'АИРДРОП: ' + ev.title, '#ffe14d', 0.26, 2.4);
+      burst(fx, ev.x, ev.y, '#ffe14d', 24, 5, 0.1, 0.8);
+      ring(fx, ev.x, ev.y, '#ff6a2a', 1.6, 0.5);
+      break;
+    case 'droplost':
+      text(fx, ev.x, ev.y, 'ящик уплыл…', '#ff9a7a', 0.26, 1.4);
+      break;
     case 'throw':
       burst(fx, ev.x, ev.y, '#d7f0ff', 4, 1.5, 0.06, 0.3);
       break;
@@ -957,6 +990,134 @@ function drawBossBar(ctx, cam, view) {
   ctx.fillRect(x, y, w * Math.max(0, hp / max), 8);
 }
 
+// ---------- Фишки: брошенная ракетка, аирдроп, шум, ярость ----------
+const racketFill = (skin) => (skin === 'rainbow' ? `hsl(${(performance.now() / 5) % 360},90%,55%)` : skin || '#d6262f');
+
+// Летящая ракетка крутится и оставляет ледяной след, как топор Левиафан
+function drawThrownRacket(ctx, x, y, skin, out, time) {
+  for (let i = 1; i <= 5; i++) {
+    ctx.fillStyle = `rgba(170,225,255,${0.35 - i * 0.06})`;
+    ctx.beginPath(); ctx.arc(x - Math.cos(time * 3 + i) * 0.05 * i, y - Math.sin(time * 3 + i) * 0.05 * i, 0.32 - i * 0.04, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(time * (out ? 22 : -22));
+  ctx.strokeStyle = '#6b4423'; ctx.lineWidth = 0.1;
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0.42, 0); ctx.stroke();
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(-0.05, 0, 0.25, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = racketFill(skin); ctx.beginPath(); ctx.arc(-0.05, 0, 0.2, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(-0.15, -0.1, 0.07, 0.07);
+  ctx.restore();
+  ctx.fillStyle = 'rgba(220,245,255,0.9)';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x + Math.sin(time * 17 + i * 2) * 0.35, y + Math.cos(time * 13 + i * 2) * 0.35, 0.06, 0.06);
+}
+
+// Ярость: красная пульсирующая аура вокруг игрока
+function drawRageAura(ctx, x, y, time) {
+  const pulse = 0.5 + 0.5 * Math.sin(time * 12);
+  ctx.fillStyle = `rgba(255,40,30,${0.18 + pulse * 0.12})`;
+  ctx.beginPath(); ctx.arc(x, y, 0.85 + pulse * 0.1, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = `rgba(255,120,60,${0.6 + pulse * 0.3})`; ctx.lineWidth = 0.06;
+  ctx.beginPath(); ctx.arc(x, y, 0.75, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#ffb040';
+  for (let i = 0; i < 4; i++) {
+    const f = (time * 1.5 + i / 4) % 1;
+    ctx.fillRect(x + Math.sin(i * 2.4) * 0.5, y + 0.3 - f * 1.4, 0.07, 0.07);
+  }
+}
+
+// Самолёт сверху: фюзеляж, крылья, хвост, тень на воде
+function drawPlane(ctx, x, dir, time) {
+  const y = 1.1;
+  ctx.save();
+  ctx.translate(x + 0.9, y + 1.4);
+  ctx.scale(dir, 1);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(-1.4, -0.18, 2.8, 0.36); ctx.fillRect(-0.3, -1.2, 0.6, 2.4);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(dir, 1);
+  ctx.fillStyle = '#3a4a3a'; ctx.fillRect(-1.5, -0.22, 3, 0.44); // фюзеляж
+  ctx.fillStyle = '#5a6a5a'; ctx.fillRect(-1.5, -0.22, 3, 0.12);
+  ctx.fillStyle = '#4a5a4a'; ctx.fillRect(-0.35, -1.35, 0.7, 2.7); // крылья
+  ctx.fillStyle = '#6a7a6a'; ctx.fillRect(-0.35, -1.35, 0.2, 2.7);
+  ctx.fillStyle = '#4a5a4a'; ctx.fillRect(-1.5, -0.6, 0.35, 1.2); // хвост
+  ctx.fillStyle = '#8fd0ff'; ctx.fillRect(1.15, -0.12, 0.3, 0.24); // кабина
+  ctx.fillStyle = 'rgba(220,220,220,0.8)'; // винты
+  for (const py of [-0.85, 0.85]) ctx.fillRect(0.4, py - 0.3 + Math.sin(time * 60) * 0.25, 0.05, 0.6);
+  ctx.restore();
+}
+
+// Ящик аирдропа: на парашюте или на воде с красным сигнальным дымом
+function drawAirdrop(ctx, x, y, z, floating, time) {
+  if (!floating) {
+    const s = Math.max(0.3, 1 - z / 9);
+    ctx.fillStyle = `rgba(0,0,0,${0.12 + s * 0.2})`;
+    ctx.beginPath(); ctx.ellipse(x, y, 0.5 * s, 0.25 * s, 0, 0, Math.PI * 2); ctx.fill();
+    const cy = y - z * 0.6;
+    ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 0.04;
+    ctx.beginPath(); ctx.moveTo(x - 0.3, cy); ctx.lineTo(x - 0.8, cy - 1.0); ctx.moveTo(x + 0.3, cy); ctx.lineTo(x + 0.8, cy - 1.0); ctx.stroke();
+    for (let i = 0; i < 6; i++) { // купол в полоску
+      ctx.fillStyle = i % 2 ? '#ffffff' : '#ff6a2a';
+      ctx.beginPath(); ctx.arc(x, cy - 1.0, 0.9, Math.PI + (i / 6) * Math.PI, Math.PI + ((i + 1) / 6) * Math.PI); ctx.lineTo(x, cy - 1.0); ctx.fill();
+    }
+    drawCrate(ctx, x, cy);
+    return;
+  }
+  const bob = Math.sin(time * 3) * 0.05;
+  ctx.strokeStyle = `rgba(255,80,60,${0.5 + 0.4 * Math.sin(time * 6)})`; ctx.lineWidth = 0.07;
+  ctx.beginPath(); ctx.arc(x, y + bob, 0.95, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(230,245,255,0.6)'; ctx.lineWidth = 0.05;
+  ctx.beginPath(); ctx.ellipse(x, y + 0.35 + bob, 0.7, 0.2, 0, 0, Math.PI * 2); ctx.stroke();
+  drawCrate(ctx, x, y + bob);
+  for (let i = 0; i < 8; i++) { // сигнальный дым
+    const f = (time * 0.5 + i / 8) % 1;
+    ctx.fillStyle = `rgba(230,50,40,${0.45 * (1 - f)})`;
+    ctx.beginPath(); ctx.arc(x + 0.2 + Math.sin(time + i) * 0.3 + f * 0.5, y - 0.4 - f * 3, 0.18 + f * 0.5, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawCrate(ctx, x, y) {
+  ctx.fillStyle = '#1a1010'; ctx.fillRect(x - 0.42, y - 0.42, 0.84, 0.84);
+  ctx.fillStyle = '#b8282a'; ctx.fillRect(x - 0.36, y - 0.36, 0.72, 0.72);
+  ctx.fillStyle = '#d84a3a'; ctx.fillRect(x - 0.36, y - 0.36, 0.72, 0.12);
+  ctx.fillStyle = '#f0f0f0'; ctx.fillRect(x - 0.05, y - 0.36, 0.1, 0.72); ctx.fillRect(x - 0.36, y - 0.05, 0.72, 0.1);
+  ctx.fillStyle = '#2a6ad0'; ctx.fillRect(x - 0.3, y + 0.14, 0.18, 0.14);
+}
+
+// Кнопка ярости слева над картами (зеркально кнопке нитро)
+export function rageButton(cam) {
+  return { x: 42, y: cam.h - cam.bottom - 46, r: 28 };
+}
+
+function drawRageButton(ctx, cam, rage, rageT, time) {
+  const b = rageButton(cam);
+  const full = rage >= 100, active = rageT > 0;
+  ctx.fillStyle = 'rgba(0,0,0,0.5)';
+  ctx.beginPath(); ctx.arc(b.x + 2, b.y + 3, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = active ? '#ff3a2a' : full ? (Math.sin(time * 10) > 0 ? '#d6262f' : '#ff6040') : '#4a1a1a';
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1e1207'; ctx.lineWidth = 3; ctx.stroke();
+  const k = active ? rageT / 8 : rage / 100;
+  ctx.strokeStyle = active ? '#ffe14d' : '#ff8a5a'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.arc(b.x, b.y, b.r - 3, -Math.PI / 2, -Math.PI / 2 + k * Math.PI * 2); ctx.stroke();
+  outlined(ctx, active ? 'ЯРОСТЬ!' : 'ЯРОСТЬ', b.x, b.y + 4, 7, full || active ? '#ffffff' : '#c08070');
+  if (full && !active) outlined(ctx, 'ЖМИ!', b.x, b.y - b.r - 6, 8, '#ffe14d');
+}
+
+// Шкала шума с «ухом»: чем громче, тем больше зомби услышат лодку
+function drawNoiseMeter(ctx, cx, y, noise, fullSpeed) {
+  const w = 64;
+  ctx.font = `12px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText('👂', cx - w / 2 - 10, y);
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(cx - w / 2 - 1, y - 9, w + 2, 9);
+  const col = noise > 66 ? '#ff4d5e' : noise > 33 ? '#ffc93d' : '#7dff6a';
+  ctx.fillStyle = col; ctx.fillRect(cx - w / 2, y - 8, (w * noise) / 100, 7);
+  outlined(ctx, fullSpeed ? 'ПОЛНЫЙ ХОД' : noise > 66 ? 'ГРОМКО' : noise > 33 ? 'ШУМНО' : 'ТИХО', cx + w / 2 + 6, y, 7, col, 'left');
+}
+
 function shade(hex, k) {
   const n = parseInt(hex.slice(1), 16);
   const f = (c) => Math.max(0, Math.min(255, Math.round(c * k)));
@@ -990,8 +1151,9 @@ function drawPlayer(ctx, cam, p, color, label) {
   ctx.fillRect(hx - 0.13 + fx * 0.06, hy - 0.03 + fy * 0.05, 0.08, 0.08);
   ctx.fillRect(hx + 0.05 + fx * 0.06, hy - 0.03 + fy * 0.05, 0.08, 0.08);
 
-  // Ракетка
-  const swinging = p.swingAge < 0.2;
+  if (p.rageT > 0) drawRageAura(ctx, x, y, performance.now() / 1000);
+  // Ракетка (если не брошена)
+  const swinging = p.swingAge < 0.2 && !p.thrown;
   let a;
   if (swinging) {
     const base = Math.atan2(p.sdy, p.sdx);
@@ -1002,14 +1164,16 @@ function drawPlayer(ctx, cam, p, color, label) {
   } else {
     a = Math.atan2(fy, fx) + 0.9;
   }
-  const rx = x + Math.cos(a) * 0.62, ry = y + Math.sin(a) * 0.62;
-  ctx.strokeStyle = '#6b4423';
-  ctx.lineWidth = 0.09;
-  ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 0.25, y + Math.sin(a) * 0.25); ctx.lineTo(rx, ry); ctx.stroke();
-  ctx.fillStyle = '#111';
-  ctx.beginPath(); ctx.arc(rx, ry, 0.23, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = p.skin === 'rainbow' ? `hsl(${(performance.now() / 5) % 360},90%,55%)` : p.skin || '#d6262f';
-  ctx.beginPath(); ctx.arc(rx, ry, 0.19, 0, Math.PI * 2); ctx.fill();
+  if (!p.thrown) {
+    const rx = x + Math.cos(a) * 0.62, ry = y + Math.sin(a) * 0.62;
+    ctx.strokeStyle = '#6b4423';
+    ctx.lineWidth = 0.09;
+    ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 0.25, y + Math.sin(a) * 0.25); ctx.lineTo(rx, ry); ctx.stroke();
+    ctx.fillStyle = '#111';
+    ctx.beginPath(); ctx.arc(rx, ry, 0.23, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = racketFill(p.skin);
+    ctx.beginPath(); ctx.arc(rx, ry, 0.19, 0, Math.PI * 2); ctx.fill();
+  }
 
   if (p.repair > 0) {
     ctx.strokeStyle = 'rgba(0,0,0,0.5)';
@@ -1276,6 +1440,7 @@ function drawHud(ctx, cam, view, hud, joy) {
   ctx.fillStyle = '#e0b878';
   ctx.fillRect(pad, iy - 11, 24, 3);
   outlined(ctx, '×' + (view.pl ?? 0), pad + 30, iy, sz * 0.75, view.pl ? '#ffe9c4' : '#ff6b6b', 'left');
+  if (view.no != null) drawNoiseMeter(ctx, W / 2, iy, view.no, view.fs);
   if (holes) outlined(ctx, 'ДЫР: ' + holes, W - pad, iy, sz * 0.75, '#ff9a7a', 'right');
 
   outlined(ctx, 'ВОЛНА ' + Math.max(1, view.w), pad, pad + sz, sz * 0.8, '#bfe6ff', 'left');
@@ -1309,15 +1474,28 @@ function drawHud(ctx, cam, view, hud, joy) {
   if (hud.hint > 0) {
     ctx.globalAlpha = Math.min(1, hud.hint);
     const hy = cam.h - cam.bottom;
-    outlined(ctx, '◀ БЕГ', W * 0.25, hy - 34, sz * 0.8, '#ffffff');
-    outlined(ctx, 'УДАР ▶', W * 0.75, hy - 34, sz * 0.8, '#ffffff');
-    outlined(ctx, 'удар: свайп — прицел, тап — авто', W / 2, hy - 16, Math.max(7, Math.min(sz * 0.55, W / 40)), '#d7f0ff');
+    const hs = Math.max(7, Math.min(sz * 0.55, (W - 24) / 30));
+    outlined(ctx, '◀ БЕГ', W * 0.25, hy - 44, sz * 0.8, '#ffffff');
+    outlined(ctx, 'УДАР ▶', W * 0.75, hy - 44, sz * 0.8, '#ffffff');
+    outlined(ctx, 'свайп — прицел · тап — авто', W / 2, hy - 26, hs, '#d7f0ff');
+    outlined(ctx, 'держи палец — бросок ракетки', W / 2, hy - 12, hs, '#aee6ff');
     ctx.globalAlpha = 1;
   }
 
   drawCardBar(ctx, cam, view, hud);
   drawBossBar(ctx, cam, view);
   drawNitroButton(ctx, cam, view, performance.now() / 1000, hud.myKey);
+  const mine = view.P?.[hud.myKey];
+  if (mine) {
+    drawRageButton(ctx, cam, mine[11] || 0, mine[12] || 0, performance.now() / 1000);
+    if (mine[12] > 0) { // в ярости по краям экрана красное марево
+      const g = ctx.createRadialGradient(cam.w / 2, cam.h / 2, Math.min(cam.w, cam.h) * 0.35, cam.w / 2, cam.h / 2, Math.hypot(cam.w, cam.h) * 0.6);
+      g.addColorStop(0, 'rgba(255,0,0,0)');
+      g.addColorStop(1, `rgba(220,20,10,${0.35 + 0.1 * Math.sin(performance.now() / 90)})`);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, cam.w, cam.h);
+    }
+  }
 
   if (joy) {
     ctx.globalAlpha = 0.35;
@@ -1372,19 +1550,20 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
 
   for (const o of smooth.values()) o.seen = false;
   for (const e of view.E) {
-    const [id, kind, x, y, hp, maxHp, flash, throwT, under] = e;
+    const [id, kind, x, y, hp, maxHp, flash, throwT, under, alert] = e;
     const p = smoothed('e' + id, x, y, dt);
     drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age, frozen: view.frT > 0, under }, time);
+    if (!alert) worldText(ctx, cam, '?', p.x + 0.35, p.y - 0.75 + Math.sin(time * 3 + id) * 0.08, 0.32, '#c8d0d8');
   }
 
   for (const key of ['h', 'g']) {
     const arr = view.P[key];
     if (!arr) continue;
     let p;
-    if (me && key === me.key) p = { ...me, repair: arr[7], bail: arr[8] };
+    if (me && key === me.key) p = { ...me, repair: arr[7], bail: arr[8], rageT: arr[12], thrown: arr[13] };
     else {
       const sp = smoothed('p' + key, arr[0], arr[1], dt);
-      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6], repair: arr[7], bail: arr[8], skin: arr[10] };
+      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6], repair: arr[7], bail: arr[8], skin: arr[10], rageT: arr[12] + 0, thrown: arr[13] };
     }
     drawPlayer(ctx, cam, p, TEAM_COLORS[key], me && key === me.key ? 'ТЫ' : null);
   }
@@ -1405,6 +1584,9 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
 
   if (me && me.atHelm) worldText(ctx, cam, '◀ РУЛЬ ▶   ▼ отойти', HELM.x, HELM.y - 0.85, 0.22, '#ffe14d');
 
+  for (const [k, tx, ty, out] of view.TH || []) drawThrownRacket(ctx, tx, ty, view.P?.[k]?.[10], out, time);
+  if (view.AD) drawAirdrop(ctx, view.AD[0], view.AD[1], view.AD[2], view.AD[3], time);
+  if (view.PL) drawPlane(ctx, view.PL[0], view.PL[1], time);
   drawShield(ctx, view, time);
   drawStorm(ctx, cam, view, time);
   drawFx(ctx, cam, fx);

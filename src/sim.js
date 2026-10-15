@@ -8,6 +8,10 @@ import {
 import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
 import { initCards, updateCards, playCard, openChest, pickChest, snapshotCards } from './cards.js';
 import { initBoss, updateBoss, snapshotBoss, BOSS_KINDS } from './boss.js';
+import {
+  initExtras, updateExtras, snapshotExtras, addNoise, addRage, raging, requestRage, requestThrow,
+  spawnsAlert, listen, swingDrop,
+} from './extras.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -54,6 +58,7 @@ export function createState(solo, opts = {}) {
   initVoyage(s, opts);
   initCards(s);
   initBoss(s);
+  initExtras(s);
   Object.assign(s, { nitro: 0, nitroT: 0, nitroReq: {}, leakMul: 1, perks: {}, arrived: false });
   s.cut = opts.noIntro ? null : { id: 'intro', t: 0 }; // вступительная кат-сцена
   applyPerks(s, opts.perks || {});
@@ -100,8 +105,11 @@ export function resetState(s) {
 }
 
 export function swing(s, key, dx, dy, lagBonus = 0) {
+  if (s.throws[key]) return; // ракетка в полёте — отбивать нечем
   const len = Math.hypot(dx, dy) || 1;
-  s.swings[key] = { t0: s.t, dx: dx / len, dy: dy / len, window: SWING_ACTIVE + lagBonus, hit: new Set() };
+  const rage = raging(s, key) ? 0.08 : 0;
+  s.swings[key] = { t0: s.t, dx: dx / len, dy: dy / len, window: SWING_ACTIVE + lagBonus + rage, hit: new Set() };
+  addNoise(s, 2);
   const p = s.players[key];
   if (p) { p.fx = dx / len; p.fy = dy / len; }
 }
@@ -123,14 +131,25 @@ function spawnEnemy(s) {
   if (s.wave >= 4 && Math.random() < 0.35) kinds.push('brute');
   const kind = pick(kinds);
   const k = KINDS[kind];
-  const e = { id: s.nextId++, kind, hp: k.hp, maxHp: k.hp, flash: 9, cd: rand(1.2, 2.2) * s.D.fire, throwT: 9 };
-  placeEnemy(e, true);
+  const e = { id: s.nextId++, kind, hp: k.hp, maxHp: k.hp, flash: 9, cd: rand(1.2, 2.2) * s.D.fire, throwT: 9, alert: spawnsAlert(s) };
+  if (e.alert) placeEnemy(e, true);
+  else { e.x = Math.random() < 0.5 ? rand(0.6, 2.2) : rand(WORLD_W - 2.2, WORLD_W - 0.6); e.y = -1.5; }
   s.enemies.push(e);
 }
 
 // Выбираем точку в воде вокруг лодки. При спавне враг выплывает из-за края экрана.
+// Уже плывущий враг остаётся на своей стороне, чтобы не пересекать лодку.
 function placeEnemy(e, spawn) {
-  const side = pick(['left', 'right', 'top', 'top']);
+  let side = pick(['left', 'right', 'top', 'top']);
+  if (!spawn) {
+    const left = e.x < BOAT.x + BOAT.w / 2;
+    side = e.y < BOAT.y - 0.5 ? 'top' : left ? 'left' : 'right'; // над лодкой — остаётся сверху
+    if (side === 'top') {
+      e.ax = left ? rand(1.2, WORLD_W / 2 - 0.5) : rand(WORLD_W / 2 + 0.5, WORLD_W - 1.2);
+      e.ay = rand(1.2, 5.2);
+      return;
+    }
+  }
   if (side === 'left') {
     e.ax = rand(0.8, 1.9); e.ay = rand(3.5, 15.5);
     if (spawn) { e.x = -1.5; e.y = e.ay; }
@@ -182,7 +201,9 @@ function reflect(s, shot, key, sw) {
   const p = s.players[key];
   const mateKey = key === 'h' ? 'g' : 'h';
   const mate = s.players[mateKey];
-  const perfect = s.t - sw.t0 <= PERFECT_WINDOW + (sw.window - SWING_ACTIVE);
+  const perfect = raging(s, key) || s.t - sw.t0 <= PERFECT_WINDOW + (sw.window - SWING_ACTIVE);
+  addRage(s, key, perfect ? 12 : 6);
+  addNoise(s, 3);
   const charge = shot.owner === 'e' ? 1 : shot.charge + 1;
 
   // Автоприцел: ближайший по углу враг или напарник в конусе удара.
@@ -231,6 +252,8 @@ function arrive(s, shot) {
     const { col, row } = tileAt(shot.tx, shot.ty);
     const fresh = punchHole(s, col, row, 6 * shot.dmg);
     if (fresh && shot.dmg > 1) addWater(s, 8);
+    addNoise(s, 6);
+    for (const k of ['h', 'g']) addRage(s, k, 4); // злимся, когда бьют по лодке
     emit(s, 'boat', { x: shot.tx, y: shot.ty, hole: fresh, big: shot.dmg > 1 });
     return;
   }
@@ -247,12 +270,36 @@ function arrive(s, shot) {
       const pts = Math.round((KINDS[e.kind] || BOSS_KINDS[e.kind]).score * (1 + (shot.charge - 1) * 0.5) * (shot.perfect ? 1.5 : 1));
       s.score += pts;
       emit(s, 'kill', { x: e.x, y: e.y, pts, kind: e.kind });
+      addRage(s, shot.owner, 10);
+      addNoise(s, 5);
     }
   }
+  if (shot.smash) addNoise(s, 25);
   for (const e of s.enemies) if (e.hp <= 0 && !e.boss && Math.random() < 0.4) dropDebris(s, e.x, e.y);
   s.enemies = s.enemies.filter((e) => e.hp > 0);
   if (shot.smash) emit(s, 'smash', { x: shot.tx, y: shot.ty, r });
   else if (!hitAny) emit(s, 'splash', { x: shot.tx, y: shot.ty });
+}
+
+// Урон врагу не от мяча (брошенная ракетка)
+function damageEnemy(s, e, dmg, key) {
+  e.hp -= dmg;
+  e.flash = 0;
+  emit(s, 'ehit', { x: e.x, y: e.y, dmg });
+  if (e.hp > 0) return;
+  const pts = (KINDS[e.kind] || BOSS_KINDS[e.kind]).score;
+  s.score += pts;
+  emit(s, 'kill', { x: e.x, y: e.y, pts, kind: e.kind });
+  addRage(s, key, 10);
+  addNoise(s, 5);
+  if (!e.boss && Math.random() < 0.4) dropDebris(s, e.x, e.y);
+}
+
+function collectDebris(s, d, key) {
+  d.got = true;
+  if (d.kind === 'nitro') s.nitro = Math.min(NITRO_MAX, s.nitro + 1);
+  else s.planks++;
+  emit(s, 'loot', { x: d.x, y: d.y, key, nitro: d.kind === 'nitro' });
 }
 
 function addWater(s, amount) {
@@ -347,6 +394,9 @@ export function skipCut(s) {
   if (s.cut) s.cut.t = CUT_TIME[s.cut.id];
 }
 
+export function hostThrow(s, key, dx, dy) { requestThrow(s, key, dx, dy, (type, data) => emit(s, type, data)); }
+export function hostRage(s, key) { requestRage(s, key, (type, data) => emit(s, type, data)); }
+
 export function hostPlayCard(s, key, i, id) { return playCard(s, key, i, id, cardHooks(s)); }
 export function hostPickChest(s, k, key) { pickChest(s, k, key, cardHooks(s)); }
 
@@ -381,6 +431,12 @@ export function step(s, dt) {
     startCut: (id) => startCut(s, id),
   });
 
+  updateExtras(s, dt, {
+    emit: (type, data) => emit(s, type, data),
+    damage: (e, dmg, key) => damageEnemy(s, e, dmg, key),
+    collectDebris: (d, key) => collectDebris(s, d, key),
+  });
+  s.enemies = s.enemies.filter((e) => e.hp > 0);
   updateDebris(s, dt);
   updateCrew(s, dt);
   updateVoyage(s, dt, {
@@ -428,6 +484,20 @@ export function step(s, dt) {
     e.flash += dt;
     e.throwT += dt;
     if (s.freezeT > 0) continue; // заморожены: не плывут и не бросают
+    if (!e.alert) {
+      const heard = listen(s, e, dt);
+      if (heard === 'alert') {
+        e.alert = true;
+        placeEnemy(e, false);
+        e.cd = rand(0.8, 1.5) * s.D.fire;
+        emit(s, 'alert', { x: e.x, y: e.y });
+      } else if (heard === 'gone') {
+        e.gone = true;
+        s.score += 5;
+        emit(s, 'sneak', { x: Math.max(1, Math.min(WORLD_W - 1, e.x)), y: WORLD_H - 2 });
+      }
+      continue;
+    }
     const d = dist(e.x, e.y, e.ax, e.ay);
     if (d > 0.05) {
       const v = Math.min(d, k.speed * dt);
@@ -443,6 +513,8 @@ export function step(s, dt) {
       }
     }
   }
+
+  s.enemies = s.enemies.filter((e) => !e.gone);
 
   // Снаряды
   for (const sh of s.shots) {
@@ -464,7 +536,7 @@ export function step(s, dt) {
     const sw = s.swings[key];
     const p = s.players[key];
     if (!sw || !p || s.t - sw.t0 > sw.window) continue;
-    const reach = REACH + (sw.window - SWING_ACTIVE) * 2;
+    const reach = (REACH + (sw.window - SWING_ACTIVE) * 2) * (raging(s, key) ? 1.5 : 1);
     for (const sh of s.shots) {
       if (sw.hit.has(sh.id) || !canHit(sh, key) || sh.t >= sh.dur) continue;
       const vx = sh.x - p.x, vy = sh.y - p.y;
@@ -473,15 +545,10 @@ export function step(s, dt) {
       if (d > 0.4 && (vx * sw.dx + vy * sw.dy) / d < -0.35) continue; // мяч за спиной
       reflect(s, sh, key, sw);
     }
-    // Ловим доски ракеткой
-    for (const d of s.debris) {
-      if (d.got || dist(d.x, d.y, p.x, p.y) > reach + 0.15) continue;
-      d.got = true;
-      if (d.kind === 'nitro') s.nitro = Math.min(NITRO_MAX, s.nitro + 1);
-      else s.planks++;
-      emit(s, 'loot', { x: d.x, y: d.y, key, nitro: d.kind === 'nitro' });
-    }
+    // Ловим доски и ящик аирдропа ракеткой
+    for (const d of s.debris) if (!d.got && dist(d.x, d.y, p.x, p.y) <= reach + 0.15) collectDebris(s, d, key);
     s.debris = s.debris.filter((d) => !d.got);
+    swingDrop(s, key, p, reach, (type, data) => emit(s, type, data));
   }
 
   const done = s.shots.filter((sh) => sh.t >= sh.dur);
@@ -495,7 +562,8 @@ export function snapshot(s) {
     const p = s.players[key];
     if (!p) return null;
     const sw = s.swings[key];
-    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0, p.steer || 0, p.skin || ''];
+    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0, p.steer || 0, p.skin || '',
+      Math.round(s.rage[key]), s.rageT[key], s.throws[key] ? 1 : 0];
   };
   return {
     t: s.t,
@@ -516,9 +584,10 @@ export function snapshot(s) {
     ...snapshotVoyage(s),
     ...snapshotCards(s),
     ...snapshotBoss(s),
+    ...snapshotExtras(s),
     ban: s.bannerT > 0 ? s.banner : null,
     P: { h: pl('h'), g: pl('g') },
-    E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT, e.under ? 1 : 0]),
+    E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT, e.under ? 1 : 0, e.alert || e.boss ? 1 : 0]),
     S: s.shots.map((sh) => [sh.id, sh.owner, sh.kind || '', sh.charge, sh.x0, sh.y0, sh.tx, sh.ty, sh.t, sh.dur, sh.arc, sh.passTo || '', sh.smash ? 1 : 0]),
   };
 }

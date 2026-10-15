@@ -3,6 +3,7 @@
 import {
   BOAT, CARDS, START_DECK, ELIXIR_MAX, ELIXIR_RATE, START_ELIXIR, HAND_SIZE, MAX_CARD_LEVEL, NITRO_MAX, dist,
 } from './const.js';
+import { addNoise } from './extras.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const CHEST_TIME = 10;
@@ -53,6 +54,7 @@ export function updateCards(s, dt, hooks) {
     t.cd = 1.25 - 0.15 * t.lvl;
     s.shots.push(friendlyShot(s, t.x, t.y - 0.5, target, { kind: 'turret', dmg: 1, speed: 9, arc: 0.4 }));
     hooks.emit('tshot', { x: t.x, y: t.y });
+    addNoise(s, 3); // башенка грохочет — зомби слышат
   }
   s.turrets = s.turrets.filter((t) => t.t > 0);
 }

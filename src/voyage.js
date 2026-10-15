@@ -4,6 +4,7 @@
 import {
   BOAT, HELM, BOAT_SPEED, STEER_SPEED, ISLAND_DIST, STORM_START_GAP, WORLD_W, NITRO_MULT, dist,
 } from './const.js';
+import { addNoise } from './extras.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const CENTER = BOAT.x + BOAT.w / 2;
@@ -51,6 +52,9 @@ export function updateVoyage(s, dt, hooks) {
     }
   }
   if (s.nitroT > 0) speed *= NITRO_MULT;
+  // Полный ход: рулевой жмёт джойстик вверх — быстрее, но громко (зомби услышат)
+  s.fullSpeed = !!(s.helm && s.players[s.helm]?.full);
+  if (s.fullSpeed) speed *= 1.3;
   s.speed = speed;
   s.boatX += s.boatVx * dt;
   s.dist += speed * dt;
@@ -70,6 +74,7 @@ export function updateVoyage(s, dt, hooks) {
       s.boltTimer = rand(2.5, 4.5);
       const col = Math.floor(rand(0, BOAT.w)), row = Math.floor(rand(2, BOAT.h));
       hooks.punchHole(col, row, 3);
+      addNoise(s, 15);
       hooks.emit('bolt', { x: BOAT.x + col + 0.5, y: BOAT.y + row + 0.5 });
     }
   }
@@ -109,6 +114,7 @@ export function updateVoyage(s, dt, hooks) {
       const col = Math.max(0, Math.min(BOAT.w - 1, Math.floor(sx - BOAT.x)));
       const row = Math.max(2, Math.min(BOAT.h - 1, Math.floor(r.y + r.r - BOAT.y)));
       hooks.punchHole(col, row, 6);
+      addNoise(s, 20);
       s.boatVx += sx < CENTER ? 2.5 : -2.5; // отбрасывает в сторону
       hooks.emit('rock', { x: Math.max(BOAT.x, Math.min(BOAT.x + BOAT.w, sx)), y: BOAT.y + row + 0.5 });
     }

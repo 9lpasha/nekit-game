@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0d3b66">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Двое в лодке</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="menu" class="screen">
+    <div class="panel">
+      <h1>ДВОЕ<br>В ЛОДКЕ</h1>
+      <p class="sub">не считая зомби</p>
+
+      <button id="btn-create" class="btn primary">Создать комнату</button>
+
+      <div class="join">
+        <input id="code" maxlength="4" placeholder="КОД" autocomplete="off" autocapitalize="characters" spellcheck="false">
+        <button id="btn-join" class="btn">Войти</button>
+      </div>
+
+      <button id="btn-solo" class="btn ghost">Тренировка одному</button>
+
+      <div class="howto">
+        <p><b>Левый палец</b> — бегать по лодке.</p>
+        <p><b>Правый палец</b> — удар ракеткой: свайп в нужную сторону или тап для автоудара.</p>
+        <p>Отбивайте снаряды обратно во врагов. Отбейте мяч <b>напарнику</b> — он зарядится. На пятом касании будет <b>СМЭШ</b>!</p>
+      </div>
+    </div>
+  </div>
+
+  <div id="wait" class="screen hidden">
+    <div class="panel">
+      <p id="wait-title" class="label">Код комнаты</p>
+      <div id="wait-code" class="bigcode">----</div>
+      <p id="wait-hint" class="hint"></p>
+      <button id="btn-share" class="btn primary">Отправить ссылку</button>
+      <p id="wait-status" class="status"></p>
+      <button id="btn-wait-solo" class="btn ghost">Начать одному, пока ждём</button>
+      <button id="btn-cancel" class="btn ghost">Назад</button>
+    </div>
+  </div>
+
+  <div id="overlay" class="screen hidden">
+    <div class="panel">
+      <h2 id="ov-title"></h2>
+      <p id="ov-text" class="hint"></p>
+      <button id="ov-btn" class="btn primary"></button>
+      <button id="ov-menu" class="btn ghost">В меню</button>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,507 @@
+// Отрисовка на Canvas 2D. Мир рисуется в «блоках», камера вписывает поле 12×20 в экран.
+import {
+  WORLD_W, WORLD_H, BOAT, MAX_HP, REACH, TEAM_COLORS, CHARGE_COLORS,
+  isBoatTile, shotPos, lerp,
+} from './const.js';
+
+const FONT = '"Press Start 2P", system-ui, monospace';
+
+// Детерминированный «рандом», чтобы трещины и пена не прыгали между кадрами.
+const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+
+// Трещины в досках: по одной на каждое потерянное очко прочности.
+const CRACKS = [];
+for (let row = 2; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) CRACKS.push({ col, row });
+CRACKS.sort((a, b) => hash(a.col * 31 + a.row * 7) - hash(b.col * 31 + b.row * 7));
+
+export function computeCamera(w, h) {
+  const top = Math.min(110, h * 0.12);
+  const bottom = Math.min(80, h * 0.09);
+  const s = Math.min(w / WORLD_W, (h - top - bottom) / WORLD_H);
+  return { s, ox: (w - WORLD_W * s) / 2, oy: top + (h - top - bottom - WORLD_H * s) / 2, w, h };
+}
+
+export function screenToWorld(cam, sx, sy) {
+  return { x: (sx - cam.ox) / cam.s, y: (sy - cam.oy) / cam.s };
+}
+
+// ---------- Эффекты ----------
+export function createFx() {
+  return { list: [], shake: 0 };
+}
+
+function burst(fx, x, y, color, n, speed, size = 0.08, life = 0.5) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const v = speed * (0.4 + Math.random() * 0.8);
+    fx.list.push({ k: 'p', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life, max: life, color, size });
+  }
+}
+function ring(fx, x, y, color, r, life = 0.4) { fx.list.push({ k: 'ring', x, y, r, life, max: life, color }); }
+function text(fx, x, y, str, color, size = 0.45, life = 0.9) { fx.list.push({ k: 'text', x, y, str, color, size, life, max: life }); }
+
+export function applyEvent(fx, ev) {
+  switch (ev.type) {
+    case 'hit':
+      burst(fx, ev.x, ev.y, ev.perfect ? '#fff27a' : '#ffffff', ev.perfect ? 14 : 7, 4);
+      ring(fx, ev.x, ev.y, CHARGE_COLORS[Math.min(ev.charge, 5)], 0.9, 0.25);
+      if (ev.perfect) text(fx, ev.x, ev.y - 0.6, 'ИДЕАЛЬНО!', '#fff27a', 0.32);
+      else if (ev.pass) text(fx, ev.x, ev.y - 0.6, 'ПАС ×' + ev.charge, '#bfe6ff', 0.3);
+      break;
+    case 'boat':
+      burst(fx, ev.x, ev.y, '#8a5a2b', 12, 3.5, 0.11, 0.6);
+      burst(fx, ev.x, ev.y, '#d9a46a', 6, 2.5, 0.07, 0.5);
+      text(fx, ev.x, ev.y - 0.5, ev.drop ? 'УРОНИЛИ!' : '-' + ev.dmg, '#ff5a5a', 0.34);
+      fx.shake = Math.max(fx.shake, 0.25 * ev.dmg);
+      break;
+    case 'splash':
+      burst(fx, ev.x, ev.y, '#a8dcff', 9, 2.5, 0.07, 0.45);
+      ring(fx, ev.x, ev.y, '#d7f0ff', 0.7, 0.5);
+      break;
+    case 'ehit':
+      burst(fx, ev.x, ev.y, '#7dff6a', 8, 3);
+      break;
+    case 'kill':
+      burst(fx, ev.x, ev.y, '#5fae4e', 16, 4, 0.1, 0.7);
+      burst(fx, ev.x, ev.y, '#8a5a2b', 8, 3, 0.1, 0.7);
+      text(fx, ev.x, ev.y - 0.4, '+' + ev.pts, '#ffe14d', 0.36);
+      break;
+    case 'smash':
+      ring(fx, ev.x, ev.y, '#ff3d5a', ev.r, 0.5);
+      ring(fx, ev.x, ev.y, '#ffe14d', ev.r * 0.6, 0.35);
+      burst(fx, ev.x, ev.y, '#ff9a3d', 30, 6, 0.12, 0.7);
+      text(fx, ev.x, ev.y - 0.8, 'СМЭШ!', '#ff3d5a', 0.6, 1.2);
+      fx.shake = Math.max(fx.shake, 0.4);
+      break;
+    case 'throw':
+      burst(fx, ev.x, ev.y, '#d7f0ff', 4, 1.5, 0.06, 0.3);
+      break;
+  }
+}
+
+function updateFx(fx, dt) {
+  for (const p of fx.list) {
+    p.life -= dt;
+    if (p.k === 'p') { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.92; p.vy *= 0.92; }
+    if (p.k === 'text') p.y -= dt * 0.8;
+  }
+  fx.list = fx.list.filter((p) => p.life > 0);
+  fx.shake = Math.max(0, fx.shake - dt);
+}
+
+// ---------- Сглаживание чужих объектов (на гостевом телефоне снимки приходят ~30 раз/с) ----------
+const smooth = new Map();
+function smoothed(id, x, y, dt) {
+  let o = smooth.get(id);
+  if (!o || Math.hypot(o.x - x, o.y - y) > 3) { o = { x, y }; smooth.set(id, o); }
+  const k = 1 - Math.exp(-dt * 18);
+  o.x += (x - o.x) * k; o.y += (y - o.y) * k;
+  o.seen = true;
+  return o;
+}
+
+// ---------- Мир ----------
+function drawWater(ctx, cam, time) {
+  const { s } = cam;
+  const g = ctx.createLinearGradient(0, 0, 0, cam.h);
+  g.addColorStop(0, '#0d3b66');
+  g.addColorStop(1, '#155e93');
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, cam.w, cam.h);
+
+  const x0 = -cam.ox / s, x1 = (cam.w - cam.ox) / s;
+  const y0 = -cam.oy / s, y1 = (cam.h - cam.oy) / s;
+  const gap = 1.1;
+  const scroll = (time * 1.4) % gap;
+  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  ctx.lineWidth = Math.max(1, s * 0.06);
+  for (let y = Math.floor(y0 / gap) * gap - gap; y < y1 + gap; y += gap) {
+    const row = Math.round(y / gap);
+    ctx.beginPath();
+    for (let x = x0 - 0.5; x <= x1 + 0.5; x += 0.5) {
+      const wy = y + scroll + Math.sin(x * 1.3 + time * 1.5 + row) * 0.12;
+      const sx = cam.ox + x * s, sy = cam.oy + wy * s;
+      if (x === x0 - 0.5) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
+    }
+    ctx.stroke();
+  }
+
+  // Пена вдоль бортов и кильватерный след — лодка «плывёт» вверх.
+  ctx.fillStyle = 'rgba(220,240,255,0.5)';
+  for (let i = 0; i < 46; i++) {
+    const side = i % 2 ? 1 : -1;
+    const travel = (hash(i) * 30 + time * 2.6) % 30;
+    const y = BOAT.y + 1 + travel;
+    const behind = Math.max(0, y - (BOAT.y + BOAT.h));
+    const x = BOAT.x + BOAT.w / 2 + side * (BOAT.w / 2 + 0.15 + hash(i + 50) * 0.5 + behind * 0.45);
+    const a = Math.max(0, 1 - travel / 22);
+    const r = (0.05 + hash(i + 9) * 0.09) * (1 + behind * 0.15);
+    ctx.globalAlpha = a * 0.7;
+    ctx.fillRect(cam.ox + (x - r) * s, cam.oy + (y - r) * s, r * 2 * s, r * 2 * s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawBoat(ctx, hp) {
+  // Тень
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  for (let row = 0; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) {
+    if (isBoatTile(col, row)) ctx.fillRect(BOAT.x + col + 0.2, BOAT.y + row + 0.3, 1, 1);
+  }
+  for (let row = 0; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) {
+    if (!isBoatTile(col, row)) continue;
+    const x = BOAT.x + col, y = BOAT.y + row;
+    ctx.fillStyle = (col + row) % 2 ? '#a8763f' : '#9c6c37';
+    ctx.fillRect(x, y, 1, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.fillRect(x, y + 0.48, 1, 0.05);
+    ctx.fillRect(x + (row % 2 ? 0.3 : 0.7), y, 0.04, 0.48);
+    ctx.fillRect(x + (row % 2 ? 0.7 : 0.3), y + 0.53, 0.04, 0.47);
+  }
+  // Скамья
+  ctx.fillStyle = '#6e4825';
+  ctx.fillRect(BOAT.x + 0.15, BOAT.y + 5.35, BOAT.w - 0.3, 0.3);
+  // Борта: тёмная кромка там, где нет соседней доски
+  ctx.fillStyle = '#5a3a1c';
+  const b = 0.16;
+  for (let row = 0; row < BOAT.h; row++) for (let col = 0; col < BOAT.w; col++) {
+    if (!isBoatTile(col, row)) continue;
+    const x = BOAT.x + col, y = BOAT.y + row;
+    if (!isBoatTile(col - 1, row)) ctx.fillRect(x, y, b, 1);
+    if (!isBoatTile(col + 1, row)) ctx.fillRect(x + 1 - b, y, b, 1);
+    if (!isBoatTile(col, row - 1)) ctx.fillRect(x, y, 1, b);
+    if (!isBoatTile(col, row + 1)) ctx.fillRect(x, y + 1 - b, 1, b);
+  }
+  // Трещины от попаданий
+  ctx.strokeStyle = '#2b1a0c';
+  ctx.lineWidth = 0.07;
+  const n = Math.min(CRACKS.length, MAX_HP - hp);
+  for (let i = 0; i < n; i++) {
+    const { col, row } = CRACKS[i];
+    const x = BOAT.x + col + 0.5, y = BOAT.y + row + 0.5;
+    const r = hash(i + 3) * Math.PI;
+    ctx.beginPath();
+    ctx.moveTo(x - Math.cos(r) * 0.35, y - Math.sin(r) * 0.35);
+    ctx.lineTo(x + 0.06, y - 0.05);
+    ctx.lineTo(x + Math.cos(r) * 0.33, y + Math.sin(r) * 0.3);
+    ctx.moveTo(x + 0.06, y - 0.05);
+    ctx.lineTo(x + Math.cos(r + 1.4) * 0.25, y + Math.sin(r + 1.4) * 0.25);
+    ctx.stroke();
+  }
+}
+
+function shade(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (c) => Math.max(0, Math.min(255, Math.round(c * k)));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
+
+// Текст в мировых координатах рисуем в экранных пикселях — мелкие дробные шрифты на телефонах рендерятся криво.
+function worldText(ctx, cam, str, x, y, size, color) {
+  ctx.save();
+  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  outlined(ctx, str, cam.ox + x * cam.s, cam.oy + y * cam.s, Math.round(size * cam.s), color);
+  ctx.restore();
+}
+
+function drawPlayer(ctx, cam, p, color, label) {
+  const { x, y, fx, fy } = p;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.beginPath(); ctx.ellipse(x, y + 0.3, 0.38, 0.16, 0, 0, Math.PI * 2); ctx.fill();
+
+  // Тело и голова — квадратные, как в кубическом мире
+  ctx.fillStyle = shade(color, 0.6);
+  ctx.fillRect(x - 0.34, y - 0.3, 0.68, 0.62);
+  ctx.fillStyle = color;
+  ctx.fillRect(x - 0.3, y - 0.26, 0.6, 0.54);
+  const hx = x + fx * 0.08, hy = y - 0.3 + fy * 0.06;
+  ctx.fillStyle = '#e8b98a';
+  ctx.fillRect(hx - 0.22, hy - 0.22, 0.44, 0.44);
+  ctx.fillStyle = '#4a2f1b';
+  ctx.fillRect(hx - 0.22, hy - 0.22, 0.44, 0.13);
+  ctx.fillStyle = '#1b1b2a';
+  ctx.fillRect(hx - 0.13 + fx * 0.06, hy - 0.03 + fy * 0.05, 0.08, 0.08);
+  ctx.fillRect(hx + 0.05 + fx * 0.06, hy - 0.03 + fy * 0.05, 0.08, 0.08);
+
+  // Ракетка
+  const swinging = p.swingAge < 0.2;
+  let a;
+  if (swinging) {
+    const base = Math.atan2(p.sdy, p.sdx);
+    a = base + lerp(-1.4, 1.4, p.swingAge / 0.2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 0.12;
+    ctx.beginPath(); ctx.arc(x, y, REACH * 0.75, base - 1.4, a); ctx.stroke();
+  } else {
+    a = Math.atan2(fy, fx) + 0.9;
+  }
+  const rx = x + Math.cos(a) * 0.62, ry = y + Math.sin(a) * 0.62;
+  ctx.strokeStyle = '#6b4423';
+  ctx.lineWidth = 0.09;
+  ctx.beginPath(); ctx.moveTo(x + Math.cos(a) * 0.25, y + Math.sin(a) * 0.25); ctx.lineTo(rx, ry); ctx.stroke();
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.arc(rx, ry, 0.23, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#d6262f';
+  ctx.beginPath(); ctx.arc(rx, ry, 0.19, 0, Math.PI * 2); ctx.fill();
+
+  if (label) worldText(ctx, cam, label, x, y - 0.66, 0.26, color);
+}
+
+const ENEMY_LOOK = {
+  zombie:  { body: '#5fae4e', size: 0.56, raft: [1.3, 1.0] },
+  spitter: { body: '#a6d64a', size: 0.48, raft: [1.15, 0.9] },
+  brute:   { body: '#3f7a35', size: 0.82, raft: [1.7, 1.35] },
+};
+
+function drawEnemy(ctx, e, time) {
+  const look = ENEMY_LOOK[e.kind];
+  const bob = Math.sin(time * 2.2 + e.id) * 0.05;
+  const x = e.x, y = e.y + bob;
+  const [rw, rh] = look.raft;
+
+  // Плот из брёвен
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(x - rw / 2 + 0.12, y - rh / 2 + 0.15, rw, rh);
+  const logs = 3;
+  for (let i = 0; i < logs; i++) {
+    ctx.fillStyle = i % 2 ? '#7a5230' : '#6b4626';
+    ctx.fillRect(x - rw / 2, y - rh / 2 + (rh / logs) * i, rw, rh / logs - 0.04);
+    ctx.fillStyle = '#4a2f1b';
+    ctx.fillRect(x - rw / 2, y - rh / 2 + (rh / logs) * i, 0.08, rh / logs - 0.04);
+    ctx.fillRect(x + rw / 2 - 0.08, y - rh / 2 + (rh / logs) * i, 0.08, rh / logs - 0.04);
+  }
+
+  // Заражённый: смотрит на лодку, тянет руки
+  const cx = BOAT.x + BOAT.w / 2, cy = BOAT.y + BOAT.h / 2;
+  const d = Math.hypot(cx - x, cy - y) || 1;
+  const dx = (cx - x) / d, dy = (cy - y) / d;
+  const sz = look.size;
+  const throwing = e.throwT < 0.3;
+  ctx.fillStyle = shade(look.body, 0.7);
+  const armLen = throwing ? -0.25 : sz * 0.75;
+  for (const side of [-1, 1]) {
+    const ax = x - dy * side * sz * 0.38, ay = y + dx * side * sz * 0.38;
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(ax + dx * armLen, ay + dy * armLen);
+    ctx.lineWidth = sz * 0.22;
+    ctx.strokeStyle = shade(look.body, 0.7);
+    ctx.stroke();
+  }
+  ctx.fillStyle = e.flash < 0.12 ? '#ffffff' : look.body;
+  ctx.fillRect(x - sz / 2, y - sz / 2, sz, sz);
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  ctx.fillRect(x - sz / 2, y + sz * 0.25, sz, sz * 0.25);
+  // Глаза-«грибницы» (заражённые не видят — только слышат)
+  ctx.fillStyle = e.kind === 'spitter' ? '#ffef5a' : '#c9d6a0';
+  const ex = dx * sz * 0.12, ey = dy * sz * 0.12;
+  ctx.fillRect(x - sz * 0.28 + ex, y - sz * 0.12 + ey, sz * 0.18, sz * 0.14);
+  ctx.fillRect(x + sz * 0.1 + ex, y - sz * 0.12 + ey, sz * 0.18, sz * 0.14);
+  if (e.kind === 'spitter') {
+    ctx.fillStyle = '#2b3a12';
+    ctx.fillRect(x - sz * 0.15 + ex, y + sz * 0.1 + ey, sz * 0.3, sz * 0.16);
+  }
+
+  if (e.hp < e.maxHp) {
+    const w = 0.22, gap = 0.06, total = e.maxHp * w + (e.maxHp - 1) * gap;
+    for (let i = 0; i < e.maxHp; i++) {
+      ctx.fillStyle = i < e.hp ? '#ff4d5e' : 'rgba(0,0,0,0.45)';
+      ctx.fillRect(x - total / 2 + i * (w + gap), y - rh / 2 - 0.35, w, 0.14);
+    }
+  }
+}
+
+function drawShot(ctx, sh, age, time, myKey) {
+  const t = Math.min(sh.t + age, sh.dur);
+  const pos = shotPos(sh, t);
+  const enemy = sh.owner === 'e';
+
+  // Куда упадёт снаряд врага / куда летит пас
+  if (enemy || sh.passTo) {
+    const r = 0.22 + 0.4 * (1 - pos.p);
+    const pulse = 0.6 + 0.4 * Math.sin(time * 14);
+    ctx.strokeStyle = enemy ? `rgba(255,70,70,${pulse})` : TEAM_COLORS[sh.passTo];
+    ctx.lineWidth = sh.passTo === myKey ? 0.1 : 0.06;
+    ctx.beginPath(); ctx.arc(sh.tx, sh.ty, r, 0, Math.PI * 2); ctx.stroke();
+    if (enemy) {
+      ctx.beginPath();
+      ctx.moveTo(sh.tx - 0.12, sh.ty - 0.12); ctx.lineTo(sh.tx + 0.12, sh.ty + 0.12);
+      ctx.moveTo(sh.tx + 0.12, sh.ty - 0.12); ctx.lineTo(sh.tx - 0.12, sh.ty + 0.12);
+      ctx.stroke();
+    }
+  }
+
+  // Тень на воде/палубе
+  ctx.fillStyle = `rgba(0,0,0,${0.35 - Math.min(0.25, pos.z * 0.08)})`;
+  ctx.beginPath(); ctx.ellipse(pos.x, pos.y, 0.16, 0.08, 0, 0, Math.PI * 2); ctx.fill();
+
+  const bx = pos.x, by = pos.y - pos.z;
+  if (enemy) {
+    if (sh.kind === 'brute') {
+      ctx.fillStyle = '#6b4626';
+      ctx.fillRect(bx - 0.22, by - 0.26, 0.44, 0.52);
+      ctx.fillStyle = '#3a3a3a';
+      ctx.fillRect(bx - 0.22, by - 0.16, 0.44, 0.06);
+      ctx.fillRect(bx - 0.22, by + 0.1, 0.44, 0.06);
+    } else if (sh.kind === 'spitter') {
+      ctx.fillStyle = '#9dff3d';
+      ctx.beginPath(); ctx.arc(bx, by, 0.16, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#d9ff9e';
+      ctx.fillRect(bx - 0.06, by - 0.08, 0.06, 0.06);
+    } else {
+      ctx.fillStyle = '#8d8d8d';
+      ctx.fillRect(bx - 0.16, by - 0.16, 0.32, 0.32);
+      ctx.fillStyle = '#b3b3b3';
+      ctx.fillRect(bx - 0.16, by - 0.16, 0.16, 0.12);
+    }
+    return;
+  }
+
+  const color = CHARGE_COLORS[Math.min(sh.charge, 5)];
+  // След за мячом
+  for (let i = 3; i >= 1; i--) {
+    const tp = shotPos(sh, Math.max(0, t - i * 0.03));
+    ctx.globalAlpha = 0.18 * (4 - i);
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(tp.x, tp.y - tp.z, 0.13 - i * 0.02, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.globalAlpha = 0.3;
+  ctx.beginPath(); ctx.arc(bx, by, sh.smash ? 0.42 : 0.28, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.beginPath(); ctx.arc(bx, by, 0.15, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(bx - 0.07, by - 0.08, 0.05, 0.05);
+}
+
+function drawFx(ctx, cam, fx) {
+  for (const p of fx.list) {
+    const a = Math.max(0, p.life / p.max);
+    ctx.globalAlpha = a;
+    if (p.k === 'p') {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    } else if (p.k === 'ring') {
+      ctx.strokeStyle = p.color;
+      ctx.lineWidth = 0.08;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1.2 - a * 0.7), 0, Math.PI * 2); ctx.stroke();
+    } else if (p.k === 'text') {
+      worldText(ctx, cam, p.str, p.x, p.y, p.size, p.color);
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+function outlined(ctx, str, x, y, size, color, align = 'center') {
+  ctx.font = `${size}px ${FONT}`;
+  ctx.textAlign = align;
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = Math.max(3, size * 0.3);
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.strokeText(str, x, y);
+  ctx.fillStyle = color;
+  ctx.fillText(str, x, y);
+}
+
+function drawHud(ctx, cam, view, hud, joy) {
+  const W = cam.w;
+  const pad = 14;
+  const sz = Math.max(10, Math.min(16, W / 32));
+
+  // Прочность лодки
+  const segW = Math.min(22, (W - 2 * pad - 20) / MAX_HP - 3);
+  const total = MAX_HP * (segW + 3) - 3;
+  const bx = (W - total) / 2, by = pad + sz + 8;
+  outlined(ctx, 'ЛОДКА', W / 2, pad + sz, sz * 0.8, '#ffe9c4');
+  for (let i = 0; i < MAX_HP; i++) {
+    const on = i < view.hp;
+    const col = view.hp > 6 ? '#58d36b' : view.hp > 3 ? '#ffc93d' : '#ff4d5e';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(bx + i * (segW + 3) - 1, by - 1, segW + 2, 14);
+    ctx.fillStyle = on ? col : '#3a2a20';
+    ctx.fillRect(bx + i * (segW + 3), by, segW, 12);
+  }
+
+  outlined(ctx, 'ВОЛНА ' + Math.max(1, view.w), pad, pad + sz, sz * 0.8, '#bfe6ff', 'left');
+  outlined(ctx, String(view.sc), W - pad, pad + sz, sz * 0.9, '#ffe14d', 'right');
+
+  // Счётчик розыгрыша, пока пас в воздухе
+  const pass = view.S.find((s) => s[11]);
+  if (pass) outlined(ctx, 'РОЗЫГРЫШ ×' + pass[3], W / 2, by + 36, sz * 0.75, CHARGE_COLORS[Math.min(pass[3], 5)]);
+
+  if (view.ban) {
+    const pulse = 1 + Math.sin(performance.now() / 120) * 0.03;
+    outlined(ctx, view.ban, W / 2, cam.oy + WORLD_H * cam.s * 0.38, sz * 1.6 * pulse, '#ffffff');
+  }
+
+  // Нижняя строка: комната и пинг
+  if (hud.status) {
+    ctx.globalAlpha = 0.75;
+    outlined(ctx, hud.status, W / 2, cam.h - 10, Math.max(8, sz * 0.6), '#d7f0ff');
+    ctx.globalAlpha = 1;
+  }
+
+  if (hud.hint > 0) {
+    ctx.globalAlpha = Math.min(1, hud.hint);
+    outlined(ctx, '◀ БЕГ', W * 0.25, cam.h - 50, sz * 0.8, '#ffffff');
+    outlined(ctx, 'УДАР ▶', W * 0.75, cam.h - 50, sz * 0.8, '#ffffff');
+    outlined(ctx, 'удар: свайп — прицел, тап — авто', W / 2, cam.h - 32, Math.max(7, Math.min(sz * 0.55, W / 40)), '#d7f0ff');
+    ctx.globalAlpha = 1;
+  }
+
+  if (joy) {
+    ctx.globalAlpha = 0.35;
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(joy.x0, joy.y0, joy.r, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 0.7;
+    let dx = joy.x - joy.x0, dy = joy.y - joy.y0;
+    const d = Math.hypot(dx, dy);
+    if (d > joy.r) { dx *= joy.r / d; dy *= joy.r / d; }
+    ctx.beginPath(); ctx.arc(joy.x0 + dx, joy.y0 + dy, joy.r * 0.45, 0, Math.PI * 2); ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+// view — снимок от хоста, age — сколько секунд прошло с его получения,
+// me — локальный игрок (рисуем без задержки сети).
+export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
+  updateFx(fx, dt);
+  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  drawWater(ctx, cam, time);
+
+  const sh = fx.shake * cam.s * 0.5;
+  const shx = sh ? (Math.random() - 0.5) * sh : 0, shy = sh ? (Math.random() - 0.5) * sh : 0;
+  const k = cam.dpr;
+  ctx.setTransform(cam.s * k, 0, 0, cam.s * k, (cam.ox + shx) * k, (cam.oy + shy) * k);
+
+  drawBoat(ctx, view.hp);
+
+  for (const o of smooth.values()) o.seen = false;
+  for (const e of view.E) {
+    const [id, kind, x, y, hp, maxHp, flash, throwT] = e;
+    const p = smoothed('e' + id, x, y, dt);
+    drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age }, time);
+  }
+
+  for (const key of ['h', 'g']) {
+    const arr = view.P[key];
+    if (!arr) continue;
+    let p;
+    if (me && key === me.key) p = me;
+    else {
+      const sp = smoothed('p' + key, arr[0], arr[1], dt);
+      p = { x: sp.x, y: sp.y, fx: arr[2], fy: arr[3], swingAge: arr[4] + age, sdx: arr[5], sdy: arr[6] };
+    }
+    drawPlayer(ctx, cam, p, TEAM_COLORS[key], me && key === me.key ? 'ТЫ' : null);
+  }
+
+  for (const s of view.S) {
+    const [id, owner, kind, charge, x0, y0, tx, ty, t, dur, arc, passTo, smash] = s;
+    drawShot(ctx, { id, owner, kind, charge, x0, y0, tx, ty, t, dur, arc, passTo, smash }, age, time, me && me.key);
+  }
+
+  drawFx(ctx, cam, fx);
+  for (const [id, o] of smooth) if (!o.seen) smooth.delete(id);
+
+  ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  if (view.ph !== 'menu') drawHud(ctx, cam, view, hud, joy);
+}

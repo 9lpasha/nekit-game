@@ -1,0 +1,67 @@
+// Простые 8-битные звуки на WebAudio — без файлов.
+let ac = null;
+let noiseBuf = null;
+
+function tone(freq, dur, type = 'square', vol = 0.06, slide = 0, delay = 0) {
+  if (!ac) return;
+  const t0 = ac.currentTime + delay;
+  const o = ac.createOscillator();
+  const g = ac.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(freq, t0);
+  if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(30, freq * slide), t0 + dur);
+  g.gain.setValueAtTime(vol, t0);
+  g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g).connect(ac.destination);
+  o.start(t0);
+  o.stop(t0 + dur + 0.02);
+}
+
+function noise(dur, vol = 0.08) {
+  if (!ac) return;
+  if (!noiseBuf) {
+    noiseBuf = ac.createBuffer(1, ac.sampleRate * 0.5, ac.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  const src = ac.createBufferSource();
+  const f = ac.createBiquadFilter();
+  const g = ac.createGain();
+  src.buffer = noiseBuf;
+  f.type = 'lowpass';
+  f.frequency.value = 1200;
+  g.gain.setValueAtTime(vol, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + dur);
+  src.connect(f).connect(g).connect(ac.destination);
+  src.start();
+  src.stop(ac.currentTime + dur);
+}
+
+const vibrate = (ms) => { try { navigator.vibrate?.(ms); } catch {} };
+
+export const sfx = {
+  init() {
+    try {
+      if (!ac) ac = new (window.AudioContext || window.webkitAudioContext)();
+      ac.resume?.();
+    } catch {}
+  },
+  swing() { tone(260, 0.07, 'triangle', 0.025, 2.2); },
+  event(ev) {
+    switch (ev.type) {
+      case 'hit':
+        if (ev.perfect) { tone(1046, 0.09, 'square', 0.06); tone(1568, 0.1, 'square', 0.04, 0, 0.05); }
+        else tone(620 + ev.charge * 90, 0.08, 'square', 0.06);
+        break;
+      case 'boat': tone(120, 0.25, 'sawtooth', 0.09, 0.5); noise(0.15, 0.06); vibrate(80); break;
+      case 'splash': noise(0.25, 0.05); break;
+      case 'ehit': tone(300, 0.06, 'square', 0.04, 0.7); break;
+      case 'kill': tone(520, 0.12, 'square', 0.05, 1.8); break;
+      case 'smash': tone(90, 0.5, 'sawtooth', 0.12, 0.3); noise(0.4, 0.1); vibrate(150); break;
+      case 'throw': tone(180, 0.06, 'triangle', 0.02, 1.5); break;
+      case 'wave': tone(392, 0.12, 'square', 0.04); tone(523, 0.18, 'square', 0.04, 0, 0.12); break;
+      case 'clear': [523, 659, 784, 1046].forEach((f, i) => tone(f, 0.12, 'square', 0.04, 0, i * 0.09)); break;
+      case 'over': [392, 330, 262, 196].forEach((f, i) => tone(f, 0.25, 'triangle', 0.06, 0, i * 0.18)); vibrate(300); break;
+    }
+  },
+};

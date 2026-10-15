@@ -42,7 +42,7 @@ function mark(s, cells, time) {
 
 function spawn(s, kind, x, y) {
   const k = BOSS_KINDS[kind];
-  const hp = Math.round(k.hp * (s.solo ? 0.7 : 1));
+  const hp = Math.round(k.hp * (s.solo ? 0.7 : 1) * s.D.bossHp);
   const e = { id: s.nextId++, kind, boss: true, hp, maxHp: hp, x, y, ax: x, ay: y, size: k.size, flash: 9, throwT: 9, t: 1, cd: 1, state: 'emerge', under: false };
   s.enemies.push(e);
   return e;

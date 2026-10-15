@@ -10,7 +10,7 @@ import {
 } from './cut/gfx.js';
 import { player, crew, boatBack, boatFront, deckY, wake } from './cut/people.js';
 import {
-  palm, bush, rock, islandFar, beachBits, fireflies, shootingStar, crab, tent, firewood, campfire,
+  palm, bush, rock, islandFar, forestShore, beachBits, fireflies, shootingStar, crab, tent, firewood, campfire,
   projector, beam, screenRig, sheet, chair,
 } from './cut/props.js';
 import {
@@ -42,8 +42,9 @@ const SCENES = {
     const kc = ease(seg(t, 2.4, 5.8));
     setCam(S, lerp(2.4, 1, kc), lerp(75, 50, kc), lerp(hor - 4, H * 0.5, kc));
     sky(S, [[0, '#2f4fb0'], [0.4, '#8a6ad0'], [0.72, '#ff8aa0'], [1, '#ffc27a']]);
-    sunDisc(S, 68, hor - 1 - ease(seg(t, 0, 7)) * 7, 5.5, '#fff6d0', '#ffb35c', 0.4);
+    sunDisc(S, 68, hor - 4 - ease(seg(t, 0, 7)) * 12, 5.5, '#fff6d0', '#ffb35c', 0.4);
     cloudLayer(S, 12, hor * 0.08, hor * 0.72, 16, 34, 1.4, ['#ffd6c8', '#fff3e6', '#c48aac'], 3);
+    forestShore(S, -80, 280, hor, '#ffb07a', '#ffd0b0'); // лесистый берег на горизонте, солнце встаёт из-за него
     for (let i = 0; i < 5; i++) {
       gull(S, lerp(-20, 130, (t * 0.07 + hash(i + 70)) % 1), hor * (0.3 + hash(i + 80) * 0.35) + Math.sin(t * 1.5 + i) * 2, 1 + (i % 2), i);
     }

@@ -56,7 +56,7 @@ export function updateVoyage(s, dt, hooks) {
   s.dist += speed * dt;
 
   // Шторм ускоряется со временем, но далеко вперёд лодки не уходит.
-  const stormSpeed = 1.1 + 0.001 * s.t + (s.chase ? 0.35 : 0); // в финальной погоне шторм злее
+  const stormSpeed = 1.1 + 0.001 * s.t + (s.chase ? 0.35 : 0) + s.D.storm; // в финальной погоне шторм злее
   s.storm = Math.min(s.storm + stormSpeed * dt, s.dist + 4);
   const gap = s.dist - s.storm;
   if (gap < 10 && !s.stormWarned) { s.stormWarned = true; hooks.banner('Шторм догоняет!', 1.8); hooks.emit('stormnear', {}); }
@@ -79,7 +79,7 @@ export function updateVoyage(s, dt, hooks) {
   // Скалы: часть специально по курсу лодки — без рулевого в них врежешься.
   s.rockTimer -= dt;
   if (s.rockTimer <= 0 && remaining > 30) {
-    s.rockTimer = rand(6, 9) / (1 + Math.min(s.wave, 10) * 0.05) / (s.chase ? 1.8 : 1);
+    s.rockTimer = (rand(6, 9) / (1 + Math.min(s.wave, 10) * 0.05) / (s.chase ? 1.8 : 1)) * s.D.rocks;
     const onCourse = Math.random() < 0.35;
     s.rocks.push({
       id: s.nextId++,

@@ -1,6 +1,6 @@
 // Прогрессия между забегами: ракушки, постоянные улучшения и раскраски ракетки.
 // Хранится в localStorage этого телефона; если хранилище недоступно — игра работает без него.
-import { PERKS, SKINS } from './const.js';
+import { PERKS, SKINS, DIFFICULTY } from './const.js';
 
 const KEY = 'lodka-progress-v1';
 
@@ -13,6 +13,7 @@ export function loadProgress() {
     owned: p?.owned || [0],
     skin: p?.skin || 0,
     best: p?.best || 0,
+    difficulty: DIFFICULTY[p?.difficulty] ? p.difficulty : 'normal',
   };
 }
 
@@ -22,7 +23,8 @@ export function saveProgress(p) {
 
 // Ракушки за забег: очки, боссы, рейдеры и победа.
 export function shellsFor(view) {
-  return Math.floor(view.sc / 40) + (view.bk || 0) * 15 + (view.rk ? 20 : 0) + (view.ph === 'win' ? 40 : 0);
+  const base = Math.floor(view.sc / 40) + (view.bk || 0) * 15 + (view.rk ? 20 : 0) + (view.ph === 'win' ? 40 : 0);
+  return Math.round(base * (DIFFICULTY[view.df]?.shells ?? 1));
 }
 
 export function perkCost(p, id) {

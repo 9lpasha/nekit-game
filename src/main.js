@@ -1,4 +1,4 @@
-import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, clampToDeck, shotPos } from './const.js';
+import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, PERKS, SKINS, DIFFICULTY, clampToDeck, shotPos } from './const.js';
 import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest, requestNitro, applyPerks, skipCut } from './sim.js';
 import { cutCues, skipButton, SKIP_HOLD } from './cutscene.js';
 import { loadProgress, saveProgress, shellsFor, perkCost, buyPerk, pickSkin, skinColor, mergePerks } from './progress.js';
@@ -91,7 +91,7 @@ function resetMe() {
 }
 
 // ---------- Экраны ----------
-const screens = ['menu', 'wait', 'overlay', 'shop'];
+const screens = ['menu', 'wait', 'overlay', 'shop', 'settings'];
 function show(id) {
   for (const s of screens) $(s).classList.toggle('hidden', s !== id);
 }
@@ -212,6 +212,7 @@ function gameOpts() {
   const duo = G.role === 'host';
   return {
     island: ISLAND,
+    difficulty: P.difficulty, // сложность всегда хоста
     perks: duo ? mergePerks(P.perks, G.guestPerks) : P.perks,
     skins: { h: skinColor(P), g: duo ? G.guestSkin : '' },
   };
@@ -296,7 +297,8 @@ function gameOver(view) {
   const title = win ? 'ОСТРОВ!' : 'Лодка затонула';
   const text = (win ? 'Остров, остров — ужин готов! 🍗<br><br>' : `Проплыли <b>${Math.round((view.di / view.isl) * 100)}%</b> пути, волна <b>${view.w}</b><br>`)
     + `Очки: <b>${view.sc}</b> · Рекорд: <b>${best}</b><br>`
-    + `Боссов: <b>${view.bk || 0}</b>${view.rk ? ' · рейдеры потоплены' : ''}<br><br>+<b>${gained}</b> 🐚 (всего ${P.shells})`;
+    + `Боссов: <b>${view.bk || 0}</b>${view.rk ? ' · рейдеры потоплены' : ''}<br>Сложность: <b>${DIFFICULTY[view.df]?.name || '—'}</b>`
+    + `<br><br>+<b>${gained}</b> 🐚 (всего ${P.shells})`;
   const again = G.role === 'guest' ? () => G.actions.cmd.send({ c: 'restart' }, G.peerId) : restart;
   showOverlay(title, text, win ? 'Плыть снова' : 'Ещё раз', again);
 }
@@ -509,8 +511,9 @@ function frame(now) {
   if (G.role) G.hint = Math.max(0, G.hint - dt);
 
   const hud = {
-    status: G.role === 'solo' ? (G.code ? `Комната ${G.code} · ждём напарника` : 'Тренировка')
-      : G.code ? `Комната ${G.code}${G.ping != null ? ' · ' + Math.round(G.ping) + ' мс' : ''}` : '',
+    status: (G.role === 'solo' ? (G.code ? `Комната ${G.code} · ждём напарника` : 'Тренировка')
+      : G.code ? `Комната ${G.code}${G.ping != null ? ' · ' + Math.round(G.ping) + ' мс' : ''}` : '')
+      + (view && DIFFICULTY[view.df] ? ` · ${DIFFICULTY[view.df].name}` : ''),
     hint: G.hint,
     pressed: G.pressed && performance.now() < G.pressed.until ? G.pressed.i : -1,
     myKey: G.myKey,
@@ -573,6 +576,34 @@ function renderShop() {
   });
 }
 $('btn-shop').onclick = () => { sfx.init(); renderShop(); show('shop'); };
+
+// ---------- Настройки: уровень сложности ----------
+function updateSettingsButton() { $('btn-settings').textContent = `Настройки · ${DIFFICULTY[P.difficulty].name}`; }
+
+function renderSettings() {
+  const list = $('difficulty-list');
+  list.innerHTML = '';
+  for (const [id, d] of Object.entries(DIFFICULTY)) {
+    const b = document.createElement('button');
+    b.className = 'chest-opt shop-item' + (P.difficulty === id ? ' selected' : '');
+    b.innerHTML = '<span class="ico"></span><span class="txt"><div class="t"></div><div class="d"></div></span><span class="price"></span>';
+    b.querySelector('.ico').textContent = d.icon;
+    b.querySelector('.t').textContent = d.name;
+    b.querySelector('.d').textContent = d.desc;
+    b.querySelector('.price').textContent = P.difficulty === id ? '✓' : '';
+    b.onclick = () => {
+      P.difficulty = id;
+      saveProgress(P);
+      sfx.event({ type: 'card' });
+      renderSettings();
+      updateSettingsButton();
+    };
+    list.appendChild(b);
+  }
+}
+$('btn-settings').onclick = () => { sfx.init(); renderSettings(); show('settings'); };
+$('settings-back').onclick = () => show('menu');
+updateSettingsButton();
 $('shop-back').onclick = () => show('menu');
 updateShopButton();
 $('btn-cancel').onclick = toMenu;

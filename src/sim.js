@@ -2,7 +2,7 @@
 import {
   BOAT, WORLD_W, WORLD_H, REACH, SWING_ACTIVE, PERFECT_WINDOW, SMASH_CHARGE,
   START_POS, LEAK_PER_HOLE, BAIL_RATE, REPAIR_TIME, START_PLANKS, BUCKET, DEBRIS_LANES,
-  NITRO_MAX, NITRO_TIME, NITRO_SYNC, HAND_SIZE, CUT_TIME,
+  NITRO_MAX, NITRO_TIME, NITRO_SYNC, HAND_SIZE, CUT_TIME, DIFFICULTY,
   pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
 import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
@@ -19,8 +19,11 @@ const KINDS = {
 };
 
 export function createState(solo, opts = {}) {
+  const diff = DIFFICULTY[opts.difficulty] ? opts.difficulty : 'normal';
   const s = {
     opts,
+    diff,
+    D: DIFFICULTY[diff],
     t: 0,
     phase: 'play',
     solo,
@@ -29,7 +32,7 @@ export function createState(solo, opts = {}) {
     water: 0, // 0–100 %
     holes: [], // { col, row }
     patches: [], // залатанные места — только для красоты
-    planks: START_PLANKS,
+    planks: START_PLANKS + DIFFICULTY[diff].planks,
     debris: [], // плывущие доски { id, x, y, lane }
     debrisTimer: 2,
     resets: 0,
@@ -107,7 +110,7 @@ function emit(s, type, data) { s.events.push({ type, ...data }); }
 
 function startWave(s) {
   s.wave++;
-  s.spawnQueue = 2 + s.wave;
+  s.spawnQueue = Math.max(1, Math.round((2 + s.wave) * s.D.count));
   s.spawnTimer = 0.3;
   s.banner = `Волна ${s.wave}`;
   s.bannerT = 1.6;
@@ -120,7 +123,7 @@ function spawnEnemy(s) {
   if (s.wave >= 4 && Math.random() < 0.35) kinds.push('brute');
   const kind = pick(kinds);
   const k = KINDS[kind];
-  const e = { id: s.nextId++, kind, hp: k.hp, maxHp: k.hp, flash: 9, cd: rand(1.2, 2.2), throwT: 9 };
+  const e = { id: s.nextId++, kind, hp: k.hp, maxHp: k.hp, flash: 9, cd: rand(1.2, 2.2) * s.D.fire, throwT: 9 };
   placeEnemy(e, true);
   s.enemies.push(e);
 }
@@ -156,7 +159,7 @@ function throwShot(s, e) {
   const speedUp = 1 + Math.min(s.wave - 1, 8) * 0.06;
   s.shots.push({
     id: s.nextId++, owner: 'e', kind: e.kind, charge: 0,
-    x0: e.x, y0: e.y, tx, ty, t: 0, dur: k.dur / speedUp, arc: k.arc, dmg: k.dmg,
+    x0: e.x, y0: e.y, tx, ty, t: 0, dur: (k.dur / speedUp) * s.D.shot, arc: k.arc, dmg: k.dmg,
     x: e.x, y: e.y, z: 0,
   });
   e.throwT = 0;
@@ -391,7 +394,7 @@ export function step(s, dt) {
     arrive: () => { if (!s.arrived) { s.arrived = true; startCut(s, 'outro'); } },
   });
   if (s.phase !== 'play' || s.cut) return;
-  addWater(s, s.holes.length * LEAK_PER_HOLE * s.leakMul * dt);
+  addWater(s, s.holes.length * LEAK_PER_HOLE * s.leakMul * s.D.leak * dt);
   if (s.water >= 100) {
     s.phase = 'over';
     emit(s, 'over', { score: s.score, wave: s.wave });
@@ -435,7 +438,7 @@ export function step(s, dt) {
       e.cd -= dt;
       if (e.cd <= 0) {
         throwShot(s, e);
-        e.cd = rand(k.cd[0], k.cd[1]) / speedUp;
+        e.cd = (rand(k.cd[0], k.cd[1]) / speedUp) * s.D.fire;
         if (Math.random() < 0.25) placeEnemy(e, false); // иногда меняет позицию
       }
     }
@@ -508,6 +511,7 @@ export function snapshot(s) {
     nT: s.nitroT,
     nr: Object.entries(s.nitroReq).filter(([, t]) => s.t - t <= NITRO_SYNC).map(([k]) => k),
     rs: s.resets,
+    df: s.diff,
     cut: s.cut ? [s.cut.id, s.cut.t] : null,
     ...snapshotVoyage(s),
     ...snapshotCards(s),

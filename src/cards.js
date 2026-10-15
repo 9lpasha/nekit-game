@@ -35,7 +35,7 @@ function shuffle(a) {
 
 // hooks: { emit, patchHole(), addPlanks(n), addWater(n) }
 export function updateCards(s, dt, hooks) {
-  s.elixir = Math.min(ELIXIR_MAX, s.elixir + ELIXIR_RATE * dt);
+  s.elixir = Math.min(ELIXIR_MAX, s.elixir + ELIXIR_RATE * s.D.elixir * dt);
   s.shieldT = Math.max(0, s.shieldT - dt);
   s.freezeT = Math.max(0, s.freezeT - dt);
 

@@ -324,3 +324,44 @@ export function flag(S, px, py) {
     if (i === 4 || i === 10) P(c, x, py + off + 4, '#f0f0f0');
   }
 }
+
+// Лесистый берег на горизонте: дальние холмы в дымке и ближний лес из крон и елей.
+// lit — цвет подсветки верхушек (рассвет), haze — цвет дымки.
+export function forestShore(S, x0, x1, hor, lit, haze) {
+  const { c, t } = S;
+  // Дальние холмы
+  for (let x = x0; x < x1; x += 1) {
+    const h = 9 + Math.sin(x * 0.045) * 4 + Math.sin(x * 0.12 + 1) * 1.8;
+    R(c, x, hor - h, 1, h, mix('#3c7a4a', haze, 0.22));
+    R(c, x, hor - h, 1, PX, mix('#6aa868', lit, 0.35));
+  }
+  // Ближний лес: кроны лиственных и ели
+  for (let x = x0; x < x1; x += 2.3) {
+    const i = Math.round(x * 3.1);
+    const base = hor - 2 - (Math.sin(x * 0.07) + 1) * 1.6;
+    if (hash(i) > 0.72) {
+      // ель: ярусы сужаются кверху
+      const h = 5 + hash(i + 1) * 3;
+      for (let k = 0; k < 5; k++) {
+        const w = (1 - k / 5) * 3.2 + 0.4, y = base - (k / 5) * h - 1;
+        R(c, x - w / 2, y - h / 5, w, h / 5 + PX, '#1f4a30');
+        R(c, x - w / 2, y - h / 5, w * 0.45, PX, mix('#3e6e46', lit, 0.4));
+      }
+      R(c, x - 0.3, base - 1, 0.6, 1.4, '#3a2a1a');
+    } else {
+      const r = 1.6 + hash(i + 2) * 1.2;
+      disc(c, x, base - r * 0.6, r + PX, '#16341f');
+      disc(c, x, base - r * 0.6, r, '#2c5a36');
+      disc(c, x - r * 0.3, base - r * 0.95, r * 0.5, mix('#4e8048', lit, 0.45));
+    }
+  }
+  R(c, x0, hor - 3, x1 - x0, 3, '#1c3e26');
+  // Утренняя дымка у кромки воды, медленно дрейфует
+  const ga = c.globalAlpha;
+  for (let i = 0; i < 14; i++) {
+    c.globalAlpha = ga * 0.18;
+    const mx = x0 + ((hash(i + 300) * (x1 - x0) + t * 1.5) % (x1 - x0));
+    oval(c, mx, hor - 1, 9 + hash(i + 301) * 8, 1.6, haze);
+  }
+  c.globalAlpha = ga;
+}

@@ -66,6 +66,25 @@ export const SKINS = [
   { name: 'Золотая', color: '#ffc93d', cost: 100 },
   { name: 'Радужная', color: 'rainbow', cost: 200 },
 ];
+// Уровни сложности. Множители к базовым значениям; в игре вдвоём действует сложность хоста.
+// fire — пауза между бросками врагов, shot — время полёта снаряда, count — врагов в волне,
+// leak — течь через пробоины, rocks — пауза между скалами, storm — прибавка к скорости шторма,
+// bossHp — прочность боссов, planks — доски на старте, elixir — скорость эликсира, shells — ракушки за заплыв.
+export const DIFFICULTY = {
+  easy: {
+    name: 'Лёгкая', icon: '🌤️', desc: 'Меньше зомби, снаряды медленнее, лодка течёт слабее. Ракушек ×0.7',
+    fire: 1.4, shot: 1.2, count: 0.7, leak: 0.7, rocks: 1.5, storm: -0.15, bossHp: 0.75, planks: 2, elixir: 1.2, shells: 0.7,
+  },
+  normal: {
+    name: 'Нормальная', icon: '⛵', desc: 'Как задумано',
+    fire: 1, shot: 1, count: 1, leak: 1, rocks: 1, storm: 0, bossHp: 1, planks: 0, elixir: 1, shells: 1,
+  },
+  hard: {
+    name: 'Сложная', icon: '🌪️', desc: 'Больше зомби, быстрые снаряды, злой шторм и крепкие боссы. Ракушек ×1.5',
+    fire: 0.8, shot: 0.88, count: 1.3, leak: 1.25, rocks: 0.75, storm: 0.1, bossHp: 1.3, planks: 0, elixir: 0.9, shells: 1.5,
+  },
+};
+
 // Кат-сцены: длительность в секундах (игра на это время на паузе, тап — пропустить).
 export const CUT_TIME = { intro: 10, serpent: 6.5, giant: 7, raider: 5.5, outro: 19.5 };
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш

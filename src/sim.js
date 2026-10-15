@@ -4,6 +4,7 @@ import {
   START_POS, LEAK_PER_HOLE, BAIL_RATE, REPAIR_TIME, START_PLANKS, BUCKET, DEBRIS_LANES,
   pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
+import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -14,8 +15,9 @@ const KINDS = {
   brute:   { hp: 5, cd: [4.0, 5.5], dur: 2.0, dmg: 2, score: 40, arc: 3.0, speed: 1.1 },
 };
 
-export function createState(solo) {
-  return {
+export function createState(solo, opts = {}) {
+  const s = {
+    opts,
     t: 0,
     phase: 'play',
     solo,
@@ -43,14 +45,16 @@ export function createState(solo) {
     banner: 'Приготовьтесь!',
     bannerT: 1.5,
   };
+  initVoyage(s, opts);
+  return s;
 }
 
 export function newPlayer(key) {
-  return { ...START_POS[key], fx: 0, fy: -1, repair: 0, bail: false };
+  return { ...START_POS[key], fx: 0, fy: -1, repair: 0, bail: false, steer: 0 };
 }
 
 export function resetState(s) {
-  const fresh = createState(s.solo);
+  const fresh = createState(s.solo, s.opts);
   fresh.resets = s.resets + 1;
   Object.assign(s, fresh);
 }
@@ -183,14 +187,9 @@ function arrive(s, shot) {
       return;
     }
     const { col, row } = tileAt(shot.tx, shot.ty);
-    const exists = s.holes.some((h) => h.col === col && h.row === row);
-    if (exists) addWater(s, 6 * shot.dmg); // в ту же дыру — просто заливает
-    else {
-      s.holes.push({ col, row });
-      s.patches = s.patches.filter((p) => p.col !== col || p.row !== row);
-      if (shot.dmg > 1) addWater(s, 8);
-    }
-    emit(s, 'boat', { x: shot.tx, y: shot.ty, hole: !exists, big: shot.dmg > 1 });
+    const fresh = punchHole(s, col, row, 6 * shot.dmg);
+    if (fresh && shot.dmg > 1) addWater(s, 8);
+    emit(s, 'boat', { x: shot.tx, y: shot.ty, hole: fresh, big: shot.dmg > 1 });
     return;
   }
   // Удар игрока долетел: урон врагам рядом с точкой попадания.
@@ -216,6 +215,14 @@ function arrive(s, shot) {
 
 function addWater(s, amount) {
   s.water = Math.min(100, s.water + amount);
+}
+
+// Пробивает дыру в клетке палубы. Если дыра там уже есть — просто заливает водой.
+function punchHole(s, col, row, waterIfExists) {
+  if (s.holes.some((h) => h.col === col && h.row === row)) { addWater(s, waterIfExists); return false; }
+  s.holes.push({ col, row });
+  s.patches = s.patches.filter((p) => p.col !== col || p.row !== row);
+  return true;
 }
 
 // Доска выплывает сверху вдоль борта или падает с разбитого плота и дрейфует к борту.
@@ -271,6 +278,13 @@ export function step(s, dt) {
 
   updateDebris(s, dt);
   updateCrew(s, dt);
+  updateVoyage(s, dt, {
+    emit: (type, data) => emit(s, type, data),
+    punchHole: (col, row, water) => punchHole(s, col, row, water),
+    addWater: (amount) => addWater(s, amount),
+    banner: (text, t) => { s.banner = text; s.bannerT = t; },
+  });
+  if (s.phase !== 'play') return;
   addWater(s, s.holes.length * LEAK_PER_HOLE * dt);
   if (s.water >= 100) {
     s.phase = 'over';
@@ -366,7 +380,7 @@ export function snapshot(s) {
     const p = s.players[key];
     if (!p) return null;
     const sw = s.swings[key];
-    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0];
+    return [p.x, p.y, p.fx, p.fy, sw ? s.t - sw.t0 : 9, sw ? sw.dx : 0, sw ? sw.dy : -1, p.repair, p.bail ? 1 : 0, p.steer || 0];
   };
   return {
     t: s.t,
@@ -379,6 +393,7 @@ export function snapshot(s) {
     PT: s.patches.map((h) => [h.col, h.row]),
     D: s.debris.map((d) => [d.id, d.x, d.y]),
     rs: s.resets,
+    ...snapshotVoyage(s),
     ban: s.bannerT > 0 ? s.banner : null,
     P: { h: pl('h'), g: pl('g') },
     E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT]),

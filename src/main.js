@@ -1,4 +1,4 @@
-import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, clampToDeck, shotPos } from './const.js';
+import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, clampToDeck, shotPos } from './const.js';
 import { createState, resetState, step, swing, snapshot, newPlayer } from './sim.js';
 import { computeCamera, screenToWorld, createFx, applyEvent, render } from './render.js';
 import { createInput } from './input.js';
@@ -9,6 +9,7 @@ const params = new URLSearchParams(location.search);
 const NET_MODE = params.get('net') === 'local' ? 'local' : 'p2p';
 const SIM_STEP = 1 / 60;
 const SEND_EVERY = 33; // мс, ~30 пакетов в секунду
+const ISLAND = Number(params.get('island')) || undefined; // ?island=60 — короткий путь для отладки
 
 const $ = (id) => document.getElementById(id);
 const canvas = $('game');
@@ -67,7 +68,7 @@ if (NET_MODE === 'local') window.__G = G; // для отладки в dev.html
 
 function resetMe() {
   const p = START_POS[G.myKey];
-  G.me = { key: G.myKey, x: p.x, y: p.y, fx: 0, fy: -1, swingAge: 9, sdx: 0, sdy: -1, lastSwing: -9 };
+  G.me = { key: G.myKey, x: p.x, y: p.y, fx: 0, fy: -1, swingAge: 9, sdx: 0, sdy: -1, lastSwing: -9, steer: 0 };
 }
 
 // ---------- Экраны ----------
@@ -114,7 +115,7 @@ function setupActions(room) {
   a.input.on((d, id) => {
     const g = G.state?.players.g;
     if (G.role !== 'host' || id !== G.peerId || !g) return;
-    [g.x, g.y, g.fx, g.fy] = d;
+    [g.x, g.y, g.fx, g.fy, g.steer = 0] = d;
   });
   a.swing.on((d, id) => {
     if (G.role !== 'host' || id !== G.peerId || !G.state.players.g) return;
@@ -182,7 +183,7 @@ function startGame(role) {
   G.hint = 5;
   resetMe();
   if (role !== 'guest') {
-    G.state = createState(role === 'solo');
+    G.state = createState(role === 'solo', { island: ISLAND });
     G.view = snapshot(G.state);
   } else {
     G.view = null;
@@ -246,12 +247,12 @@ function gameOver(view) {
     best = Number(localStorage.getItem('lodka-best') || 0);
     if (view.sc > best) { best = view.sc; localStorage.setItem('lodka-best', String(best)); }
   } catch {}
-  const text = `Дошли до волны <b>${view.w}</b><br>Очки: <b>${view.sc}</b> · Рекорд: <b>${best}</b>`;
-  if (G.role === 'guest') {
-    showOverlay('Лодка затонула', text, 'Ещё раз', () => G.actions.cmd.send({ c: 'restart' }, G.peerId));
-  } else {
-    showOverlay('Лодка затонула', text, 'Ещё раз', restart);
-  }
+  const win = view.ph === 'win';
+  const title = win ? 'ОСТРОВ!' : 'Лодка затонула';
+  const text = (win ? 'Остров, остров — ужин готов! 🍗<br><br>' : `Проплыли <b>${Math.round((view.di / view.isl) * 100)}%</b> пути, волна <b>${view.w}</b><br>`)
+    + `Очки: <b>${view.sc}</b> · Рекорд: <b>${best}</b>`;
+  const again = G.role === 'guest' ? () => G.actions.cmd.send({ c: 'restart' }, G.peerId) : restart;
+  showOverlay(title, text, win ? 'Плыть снова' : 'Ещё раз', again);
 }
 
 function onEvent(ev) {
@@ -282,11 +283,22 @@ function updateMe(dt, now, view, age) {
   const me = G.me;
   const v = input.moveVec();
   const speed = PLAYER_SPEED * (1 - WATER_SLOWDOWN * (view.wa || 0) / 100); // по колено в воде бегать тяжелее
-  me.x += v.x * speed * dt;
-  me.y += v.y * speed * dt;
+  // У штурвала джойстик влево-вправо рулит лодкой; вниз — отойти от штурвала.
+  const atHelm = Math.hypot(me.x - HELM.x, me.y - HELM.y) < HELM.r && v.y < 0.5;
+  if (atHelm) {
+    me.steer = Math.abs(v.x) > 0.15 ? v.x : 0;
+    me.x += (HELM.x - me.x) * Math.min(1, dt * 12);
+    me.y += Math.max(0, v.y) * speed * dt;
+    if (me.swingAge > 0.25) { me.fx = 0; me.fy = -1; }
+  } else {
+    me.steer = 0;
+    me.x += v.x * speed * dt;
+    me.y += v.y * speed * dt;
+  }
+  me.atHelm = atHelm;
   clampToDeck(me);
   me.swingAge += dt;
-  if (Math.hypot(v.x, v.y) > 0.2 && me.swingAge > 0.25) {
+  if (!atHelm && Math.hypot(v.x, v.y) > 0.2 && me.swingAge > 0.25) {
     const l = Math.hypot(v.x, v.y);
     me.fx = v.x / l; me.fy = v.y / l;
   }
@@ -332,7 +344,7 @@ function frame(now) {
     const s = G.state;
     updateMe(dt, now, view, 0);
     const p = s.players.h;
-    p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy;
+    p.x = G.me.x; p.y = G.me.y; p.fx = G.me.fx; p.fy = G.me.fy; p.steer = G.me.steer;
     acc += dt;
     while (acc >= SIM_STEP) { step(s, SIM_STEP); acc -= SIM_STEP; }
     for (const ev of s.events) {
@@ -361,14 +373,14 @@ function frame(now) {
       if (now - G.lastSend >= SEND_EVERY) {
         G.lastSend = now;
         const r = (n) => Math.round(n * 1000) / 1000;
-        G.actions.input.send([r(G.me.x), r(G.me.y), r(G.me.fx), r(G.me.fy)], G.peerId);
+        G.actions.input.send([r(G.me.x), r(G.me.y), r(G.me.fx), r(G.me.fy), r(G.me.steer)], G.peerId);
       }
       // Настоящий разрыв ловит room.onLeave; тут только предупреждаем о задержке (хост свернул игру и т.п.)
       if (age > 1.5) view = { ...view, ban: 'Связь прерывается…' };
     }
   }
 
-  if (view && view.ph === 'over' && !G.overShown && G.role) gameOver(view);
+  if (view && (view.ph === 'over' || view.ph === 'win') && !G.overShown && G.role) gameOver(view);
   if (G.role) G.hint = Math.max(0, G.hint - dt);
 
   const hud = {
@@ -381,7 +393,7 @@ function frame(now) {
 }
 
 // Пустое море на фоне меню
-const idleView = { ph: 'menu', w: 1, sc: 0, wa: 0, pl: 0, H: [], PT: [], D: [], P: { h: null, g: null }, E: [], S: [], ban: null };
+const idleView = { ph: 'menu', w: 1, sc: 0, wa: 0, pl: 0, H: [], PT: [], D: [], R: [], WP: [], bx: 0, di: 0, st: -30, isl: 450, P: { h: null, g: null }, E: [], S: [], ban: null };
 
 setInterval(async () => {
   if (!G.room || !G.peerId || NET_MODE === 'local') return;

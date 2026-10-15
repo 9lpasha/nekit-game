@@ -1,6 +1,6 @@
 // Отрисовка на Canvas 2D. Мир рисуется в «блоках», камера вписывает поле 12×20 в экран.
 import {
-  WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET,
+  WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET, HELM,
   isBoatTile, tileAt, shotPos, lerp,
 } from './const.js';
 
@@ -22,7 +22,7 @@ export function screenToWorld(cam, sx, sy) {
 
 // ---------- Эффекты ----------
 export function createFx() {
-  return { list: [], shake: 0 };
+  return { list: [], shake: 0, flash: 0 };
 }
 
 function burst(fx, x, y, color, n, speed, size = 0.08, life = 0.5) {
@@ -83,6 +83,22 @@ export function applyEvent(fx, ev) {
       text(fx, ev.x, ev.y - 0.8, 'СМЭШ!', '#ff3d5a', 0.6, 1.2);
       fx.shake = Math.max(fx.shake, 0.4);
       break;
+    case 'rock':
+      burst(fx, ev.x, ev.y, '#868e97', 16, 4, 0.12, 0.6);
+      burst(fx, ev.x, ev.y, '#8a5a2b', 8, 3, 0.1, 0.6);
+      text(fx, ev.x, ev.y - 0.6, 'СКАЛА!', '#ff5a5a', 0.34);
+      fx.shake = Math.max(fx.shake, 0.5);
+      break;
+    case 'bolt':
+      fx.flash = 1;
+      fx.list.push({ k: 'bolt', x: ev.x, y: ev.y, life: 0.25, max: 0.25 });
+      burst(fx, ev.x, ev.y, '#fffbd0', 12, 4, 0.08, 0.4);
+      text(fx, ev.x, ev.y - 0.6, 'МОЛНИЯ!', '#fffbd0', 0.3);
+      fx.shake = Math.max(fx.shake, 0.35);
+      break;
+    case 'whirl':
+      text(fx, ev.x, ev.y, 'ВОДОВОРОТ!', '#bfe6ff', 0.32, 1.2);
+      break;
     case 'throw':
       burst(fx, ev.x, ev.y, '#d7f0ff', 4, 1.5, 0.06, 0.3);
       break;
@@ -97,6 +113,7 @@ function updateFx(fx, dt) {
   }
   fx.list = fx.list.filter((p) => p.life > 0);
   fx.shake = Math.max(0, fx.shake - dt);
+  fx.flash = Math.max(0, fx.flash - dt * 3);
 }
 
 // ---------- Сглаживание чужих объектов (на гостевом телефоне снимки приходят ~30 раз/с) ----------
@@ -111,7 +128,9 @@ function smoothed(id, x, y, dt) {
 }
 
 // ---------- Мир ----------
-function drawWater(ctx, cam, time) {
+function drawWater(ctx, cam, time, view) {
+  const travel = view.ph === 'menu' ? time * 1.6 : view.di || 0; // сколько проплыли
+  const bx = view.bx || 0;
   const { s } = cam;
   const g = ctx.createLinearGradient(0, 0, 0, cam.h);
   g.addColorStop(0, '#0d3b66');
@@ -122,14 +141,14 @@ function drawWater(ctx, cam, time) {
   const x0 = -cam.ox / s, x1 = (cam.w - cam.ox) / s;
   const y0 = -cam.oy / s, y1 = (cam.h - cam.oy) / s;
   const gap = 1.1;
-  const scroll = (time * 1.4) % gap;
+  const scroll = (travel * 0.9) % gap;
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = Math.max(1, s * 0.06);
   for (let y = Math.floor(y0 / gap) * gap - gap; y < y1 + gap; y += gap) {
     const row = Math.round(y / gap);
     ctx.beginPath();
     for (let x = x0 - 0.5; x <= x1 + 0.5; x += 0.5) {
-      const wy = y + scroll + Math.sin(x * 1.3 + time * 1.5 + row) * 0.12;
+      const wy = y + scroll + Math.sin((x + bx) * 1.3 + time * 1.5 + row) * 0.12;
       const sx = cam.ox + x * s, sy = cam.oy + wy * s;
       if (x === x0 - 0.5) ctx.moveTo(sx, sy); else ctx.lineTo(sx, sy);
     }
@@ -140,11 +159,11 @@ function drawWater(ctx, cam, time) {
   ctx.fillStyle = 'rgba(220,240,255,0.5)';
   for (let i = 0; i < 46; i++) {
     const side = i % 2 ? 1 : -1;
-    const travel = (hash(i) * 30 + time * 2.6) % 30;
-    const y = BOAT.y + 1 + travel;
+    const along = (hash(i) * 30 + travel * 1.6) % 30;
+    const y = BOAT.y + 1 + along;
     const behind = Math.max(0, y - (BOAT.y + BOAT.h));
-    const x = BOAT.x + BOAT.w / 2 + side * (BOAT.w / 2 + 0.15 + hash(i + 50) * 0.5 + behind * 0.45);
-    const a = Math.max(0, 1 - travel / 22);
+    const x = BOAT.x + BOAT.w / 2 + side * (BOAT.w / 2 + 0.15 + hash(i + 50) * 0.5 + behind * 0.45) - (view.bv || 0) * behind * 0.3;
+    const a = Math.max(0, 1 - along / 22);
     const r = (0.05 + hash(i + 9) * 0.09) * (1 + behind * 0.15);
     ctx.globalAlpha = a * 0.7;
     ctx.fillRect(cam.ox + (x - r) * s, cam.oy + (y - r) * s, r * 2 * s, r * 2 * s);
@@ -270,6 +289,123 @@ function drawDebris(ctx, d, time) {
   ctx.lineWidth = 0.04;
   ctx.beginPath(); ctx.arc(x, y, 0.55, 0, Math.PI * 2); ctx.stroke();
   ctx.globalAlpha = 1;
+}
+
+// ---------- Плавание: скалы, водовороты, штурвал, шторм, остров ----------
+function drawRock(ctx, r, time) {
+  const { x, y } = r;
+  const rad = r.r;
+  // Пена вокруг
+  ctx.strokeStyle = 'rgba(230,245,255,0.55)';
+  ctx.lineWidth = 0.08;
+  ctx.beginPath(); ctx.arc(x, y + 0.05, rad + 0.18 + Math.sin(time * 4 + r.id) * 0.04, 0, Math.PI * 2); ctx.stroke();
+  // Кубический валун: несколько серых блоков
+  const seed = r.id * 7;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(x - rad + 0.12, y - rad * 0.8 + 0.15, rad * 2, rad * 1.7);
+  const blocks = [[-1, -0.8, 1.2, 1], [-0.2, -1, 1.2, 1.1], [-0.9, 0, 1.9, 0.9]];
+  blocks.forEach(([bx, by, bw, bh], i) => {
+    ctx.fillStyle = ['#6f7780', '#868e97', '#5d646c'][(i + seed) % 3];
+    ctx.fillRect(x + bx * rad * 0.8, y + by * rad * 0.8, bw * rad * 0.8, bh * rad * 0.8);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(x + bx * rad * 0.8, y + by * rad * 0.8, bw * rad * 0.8, 0.08);
+  });
+}
+
+function drawWhirl(ctx, w, time) {
+  ctx.save();
+  ctx.translate(w.x, w.y);
+  ctx.rotate(-time * 2.2);
+  for (let i = 0; i < 4; i++) {
+    ctx.strokeStyle = `rgba(200,235,255,${0.5 - i * 0.1})`;
+    ctx.lineWidth = 0.1;
+    ctx.beginPath();
+    ctx.arc(0, 0, w.r * (1 - i * 0.22), i, i + Math.PI * 1.3);
+    ctx.stroke();
+  }
+  ctx.fillStyle = 'rgba(5,30,60,0.6)';
+  ctx.beginPath(); ctx.arc(0, 0, 0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawHelm(ctx, view, active) {
+  const { x, y } = HELM;
+  const a = (view.bx || 0) * 0.9; // колесо поворачивается вместе с курсом
+  // Колесо стоит перед рулевым (ближе к носу), чтобы фигурка его не закрывала
+  ctx.fillStyle = '#5a3a1c';
+  ctx.fillRect(x - 0.08, y - 0.75, 0.16, 0.4);
+  ctx.save();
+  ctx.translate(x, y - 0.75);
+  ctx.rotate(a);
+  ctx.strokeStyle = '#6b4423';
+  ctx.lineWidth = 0.08;
+  for (let i = 0; i < 4; i++) {
+    const t = (i / 4) * Math.PI;
+    ctx.beginPath(); ctx.moveTo(Math.cos(t) * -0.42, Math.sin(t) * -0.42); ctx.lineTo(Math.cos(t) * 0.42, Math.sin(t) * 0.42); ctx.stroke();
+  }
+  ctx.strokeStyle = active ? '#ffe14d' : '#8a5a2b';
+  ctx.lineWidth = 0.1;
+  ctx.beginPath(); ctx.arc(0, 0, 0.32, 0, Math.PI * 2); ctx.stroke();
+  ctx.fillStyle = '#3b2614';
+  ctx.beginPath(); ctx.arc(0, 0, 0.08, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// Остров показывается, когда до него осталось меньше экрана пути.
+function drawIsland(ctx, view, time) {
+  const remaining = view.isl - view.di;
+  if (!(remaining < 24)) return;
+  const y = BOAT.y - remaining * ((BOAT.y + 1) / 24); // нижний край: от верха экрана до носа лодки
+  const cx = WORLD_W / 2 - (view.bx || 0) * 0.15;
+  ctx.fillStyle = 'rgba(255,255,255,0.35)';
+  ctx.fillRect(cx - 5.6, y - 0.2, 11.2, 0.4);
+  ctx.fillStyle = '#e6c879';
+  ctx.fillRect(cx - 5.2, y - 3, 10.4, 3);
+  ctx.fillStyle = '#d4b465';
+  for (let i = 0; i < 10; i++) ctx.fillRect(cx - 5.2 + i * 1.04, y - 0.6 + (i % 2) * 0.2, 1.04, 0.6);
+  ctx.fillStyle = '#58b04a';
+  ctx.fillRect(cx - 4.2, y - 6, 8.4, 3.2);
+  ctx.fillStyle = '#4a9a3e';
+  ctx.fillRect(cx - 3.2, y - 7.5, 6.4, 1.6);
+  // Пальма
+  ctx.fillStyle = '#7a5230';
+  ctx.fillRect(cx + 1.5, y - 4.4, 0.3, 2.2);
+  ctx.fillStyle = '#3f8f35';
+  const sway = Math.sin(time * 1.5) * 0.1;
+  ctx.fillRect(cx + 0.6 + sway, y - 4.7, 2.1, 0.4);
+  ctx.fillRect(cx + 1.4 + sway, y - 5.4, 0.5, 1.4);
+  // Костёр — «ужин готов»
+  ctx.fillStyle = '#ff9a3d';
+  ctx.fillRect(cx - 1.6, y - 2.2 - Math.abs(Math.sin(time * 8)) * 0.1, 0.4, 0.4);
+  ctx.fillStyle = '#ffe14d';
+  ctx.fillRect(cx - 1.5, y - 2.0, 0.2, 0.2);
+}
+
+// Шторм за кормой: фиолетовая стена с молниями. gap — сколько блоков до неё.
+function drawStorm(ctx, cam, view, time) {
+  const gap = view.di - view.st;
+  if (!(gap < 10)) return;
+  const front = BOAT.y + BOAT.h + Math.max(-BOAT.h - 7, gap);
+  const bottom = (cam.h - cam.oy) / cam.s + 1;
+  const g = ctx.createLinearGradient(0, front - 1.5, 0, front + 3);
+  g.addColorStop(0, 'rgba(70,20,90,0)');
+  g.addColorStop(0.4, 'rgba(70,20,90,0.65)');
+  g.addColorStop(1, 'rgba(30,5,45,0.9)');
+  ctx.fillStyle = g;
+  const x0 = -cam.ox / cam.s, x1 = (cam.w - cam.ox) / cam.s;
+  ctx.fillRect(x0, front - 1.5, x1 - x0, bottom - front + 1.5);
+  // Рваный край
+  ctx.fillStyle = 'rgba(120,50,150,0.5)';
+  for (let x = Math.floor(x0); x < x1; x += 0.5) {
+    const h = 0.3 + Math.abs(Math.sin(x * 2.1 + time * 3)) * 0.6;
+    ctx.fillRect(x, front - h, 0.5, h);
+  }
+  if (Math.sin(time * 9.3) > 0.97) {
+    ctx.strokeStyle = 'rgba(255,255,220,0.9)';
+    ctx.lineWidth = 0.08;
+    const lx = x0 + ((Math.floor(time * 3) * 37) % 10) / 10 * (x1 - x0);
+    ctx.beginPath(); ctx.moveTo(lx, front); ctx.lineTo(lx + 0.4, front + 1); ctx.lineTo(lx - 0.2, front + 1.6); ctx.lineTo(lx + 0.3, front + 3); ctx.stroke();
+  }
 }
 
 function shade(hex, k) {
@@ -482,6 +618,15 @@ function drawFx(ctx, cam, fx) {
       ctx.beginPath(); ctx.arc(p.x, p.y, p.r * (1.2 - a * 0.7), 0, Math.PI * 2); ctx.stroke();
     } else if (p.k === 'text') {
       worldText(ctx, cam, p.str, p.x, p.y, p.size, p.color);
+    } else if (p.k === 'bolt') {
+      ctx.strokeStyle = '#fffbd0';
+      ctx.lineWidth = 0.12;
+      ctx.beginPath();
+      ctx.moveTo(p.x + 0.8, p.y - 9);
+      ctx.lineTo(p.x - 0.4, p.y - 5);
+      ctx.lineTo(p.x + 0.5, p.y - 3.5);
+      ctx.lineTo(p.x - 0.2, p.y);
+      ctx.stroke();
     }
   }
   ctx.globalAlpha = 1;
@@ -519,9 +664,28 @@ function drawHud(ctx, cam, view, hud, joy) {
   ctx.fillStyle = 'rgba(255,255,255,0.25)';
   ctx.fillRect(bx, by, (barW * wa) / 100, 3);
 
+  // Путь до острова: лодка и шторм на одной полосе
+  const py = by + 22;
+  const isl = view.isl || 1;
+  const pos = (d) => bx + Math.max(0, Math.min(1, d / isl)) * barW;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(bx - 2, py - 2, barW + 4, 10);
+  ctx.fillStyle = '#1d4f7a';
+  ctx.fillRect(bx, py, barW, 6);
+  ctx.fillStyle = '#e6c879';
+  ctx.fillRect(bx, py, pos(view.di) - bx, 6);
+  ctx.fillStyle = '#58b04a';
+  ctx.fillRect(bx + barW - 6, py - 3, 8, 12); // остров
+  if (view.st > 0) {
+    ctx.fillStyle = '#9b4dca';
+    ctx.fillRect(bx, py, pos(view.st) - bx, 6);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(pos(view.di) - 3, py - 4, 6, 14); // лодка
+
   // Доски и пробоины
   const holes = (view.H || []).length;
-  const iy = by + 34;
+  const iy = by + 46;
   ctx.fillStyle = '#c99a5b';
   ctx.fillRect(pad, iy - 11, 24, 10);
   ctx.fillStyle = '#e0b878';
@@ -534,7 +698,16 @@ function drawHud(ctx, cam, view, hud, joy) {
 
   // Счётчик розыгрыша, пока пас в воздухе
   const pass = view.S.find((s) => s[11]);
-  if (pass) outlined(ctx, 'РОЗЫГРЫШ ×' + pass[3], W / 2, by + 52, sz * 0.75, CHARGE_COLORS[Math.min(pass[3], 5)]);
+  if (pass) outlined(ctx, 'РОЗЫГРЫШ ×' + pass[3], W / 2, by + 66, sz * 0.75, CHARGE_COLORS[Math.min(pass[3], 5)]);
+
+  // Сколько до шторма
+  const gap = view.di - view.st;
+  if (gap < 15) {
+    const inside = gap < 0;
+    const blinkS = (inside || gap < 5) && Math.sin(performance.now() / 110) > 0;
+    const label = inside ? 'В ШТОРМЕ! ВЫЧЕРПЫВАЙТЕ!' : `ШТОРМ ЗА КОРМОЙ: ${Math.ceil(gap)}`;
+    outlined(ctx, label, W / 2, cam.oy + WORLD_H * cam.s - 8, Math.max(8, sz * 0.65), blinkS ? '#ffffff' : '#d39bff');
+  }
 
   if (view.ban) {
     const pulse = 1 + Math.sin(performance.now() / 120) * 0.03;
@@ -574,14 +747,24 @@ function drawHud(ctx, cam, view, hud, joy) {
 export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   updateFx(fx, dt);
   ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
-  drawWater(ctx, cam, time);
+  drawWater(ctx, cam, time, view);
 
   const sh = fx.shake * cam.s * 0.5;
   const shx = sh ? (Math.random() - 0.5) * sh : 0, shy = sh ? (Math.random() - 0.5) * sh : 0;
   const k = cam.dpr;
   ctx.setTransform(cam.s * k, 0, 0, cam.s * k, (cam.ox + shx) * k, (cam.oy + shy) * k);
 
+  drawIsland(ctx, view, time);
+  for (const w of view.WP || []) {
+    const p = smoothed('w' + w[0], w[1], w[2], dt);
+    drawWhirl(ctx, { x: p.x, y: p.y, r: w[3] }, time);
+  }
+  for (const r of view.R || []) {
+    const p = smoothed('r' + r[0], r[1], r[2], dt);
+    drawRock(ctx, { id: r[0], x: p.x, y: p.y, r: r[3] }, time);
+  }
   drawBoat(ctx, view, time);
+  if (view.ph !== 'menu') drawHelm(ctx, view, !!view.hm);
   for (const d of view.D || []) {
     const p = smoothed('d' + d[0], d[1], d[2], dt);
     drawDebris(ctx, { id: d[0], x: p.x, y: p.y }, time);
@@ -620,9 +803,21 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
     }
   }
 
+  if (me && me.atHelm) worldText(ctx, cam, '◀ РУЛЬ ▶   ▼ отойти', HELM.x, HELM.y - 0.85, 0.22, '#ffe14d');
+
+  drawStorm(ctx, cam, view, time);
   drawFx(ctx, cam, fx);
   for (const [id, o] of smooth) if (!o.seen) smooth.delete(id);
 
   ctx.setTransform(cam.dpr, 0, 0, cam.dpr, 0, 0);
+  // В шторме экран темнеет, молния даёт вспышку
+  if (view.ph !== 'menu' && view.di - view.st < 0) {
+    ctx.fillStyle = 'rgba(40,10,60,0.3)';
+    ctx.fillRect(0, 0, cam.w, cam.h);
+  }
+  if (fx.flash > 0) {
+    ctx.fillStyle = `rgba(255,255,230,${fx.flash * 0.45})`;
+    ctx.fillRect(0, 0, cam.w, cam.h);
+  }
   if (view.ph !== 'menu') drawHud(ctx, cam, view, hud, joy);
 }

@@ -22,6 +22,12 @@ export const WATER_SLOWDOWN = 0.4; // при полной лодке бегае�
 export const BUCKET = { x: BOAT.x + BOAT.w / 2, y: BOAT.y + BOAT.h - 0.6, r: 0.75 };
 // Доски плывут вдоль бортов — на расстоянии удара ракеткой с палубы.
 export const DEBRIS_LANES = [BOAT.x - 0.55, BOAT.x + BOAT.w + 0.55];
+// Плавание: штурвал у носа, лодка идёт к острову, сзади догоняет шторм.
+export const HELM = { x: BOAT.x + BOAT.w / 2, y: BOAT.y + 2.6, r: 0.6 };
+export const BOAT_SPEED = 1.6; // блоков в секунду при пустой лодке
+export const STEER_SPEED = 4;
+export const ISLAND_DIST = 450; // ~5 минут пути
+export const STORM_START_GAP = 26;
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш
 
 export const TEAM_COLORS = { h: '#ff8a3d', g: '#3db4ff' };

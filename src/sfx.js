@@ -60,6 +60,11 @@ export const sfx = {
       case 'patch': [330, 392, 494].forEach((f, i) => tone(f, 0.06, 'square', 0.04, 0, i * 0.06)); break;
       case 'loot': tone(784, 0.07, 'square', 0.04); tone(1046, 0.09, 'square', 0.04, 0, 0.07); break;
       case 'splash': noise(0.25, 0.05); break;
+      case 'rock': tone(70, 0.35, 'sawtooth', 0.12, 0.5); noise(0.35, 0.1); vibrate(160); break;
+      case 'bolt': noise(0.6, 0.14); tone(60, 0.5, 'square', 0.08, 0.4); vibrate(120); break;
+      case 'whirl': tone(300, 0.6, 'sine', 0.05, 0.4); break;
+      case 'stormnear': tone(110, 0.4, 'triangle', 0.06, 0.8); tone(98, 0.5, 'triangle', 0.06, 0.8, 0.35); break;
+      case 'win': [523, 659, 784, 1046, 784, 1046, 1318].forEach((f, i) => tone(f, 0.16, 'square', 0.05, 0, i * 0.13)); break;
       case 'ehit': tone(300, 0.06, 'square', 0.04, 0.7); break;
       case 'kill': tone(520, 0.12, 'square', 0.05, 1.8); break;
       case 'smash': tone(90, 0.5, 'sawtooth', 0.12, 0.3); noise(0.4, 0.1); vibrate(150); break;

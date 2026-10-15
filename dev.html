@@ -12,15 +12,19 @@
 <body>
   <!-- Два «телефона» в одном окне.
        dev.html          — связь через BroadcastChannel, интернет не нужен;
-       dev.html?net=p2p  — настоящий WebRTC через Trystero (нужен интернет). -->
+       dev.html?net=p2p  — настоящий WebRTC через Trystero (нужен интернет);
+       dev.html?island=60 — короткий путь до острова. -->
   <figure><iframe id="host"></iframe><figcaption>Хост (оранжевый)</figcaption></figure>
   <figure><iframe id="guest"></iframe><figcaption>Гость (синий)</figcaption></figure>
   <script>
-    const p2p = new URLSearchParams(location.search).get('net') === 'p2p';
+    const q = new URLSearchParams(location.search);
+    const p2p = q.get('net') === 'p2p';
+    q.delete('net');
     const code = p2p ? 'D' + Math.random().toString(36).slice(2, 5).toUpperCase() : 'TEST';
     const net = p2p ? '' : 'net=local&';
-    document.getElementById('host').src = `index.html?${net}auto=host&code=${code}`;
-    document.getElementById('guest').src = `index.html?${net}auto=guest&code=${code}`;
+    const extra = q.toString() ? '&' + q : ''; // например ?island=60 — пробрасываем в оба окна
+    document.getElementById('host').src = `index.html?${net}auto=host&code=${code}${extra}`;
+    document.getElementById('guest').src = `index.html?${net}auto=guest&code=${code}${extra}`;
   </script>
 </body>
 </html>

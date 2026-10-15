@@ -1,6 +1,6 @@
 // Отрисовка на Canvas 2D. Мир рисуется в «блоках», камера вписывает поле 12×20 в экран.
 import {
-  WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET, HELM,
+  WORLD_W, WORLD_H, BOAT, REACH, TEAM_COLORS, CHARGE_COLORS, BUCKET, HELM, CARDS,
   isBoatTile, tileAt, shotPos, lerp,
 } from './const.js';
 
@@ -11,9 +11,9 @@ const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return
 
 export function computeCamera(w, h) {
   const top = Math.min(110, h * 0.12);
-  const bottom = Math.min(80, h * 0.09);
+  const bottom = Math.min(140, Math.max(100, h * 0.17)); // снизу — эликсир и карты
   const s = Math.min(w / WORLD_W, (h - top - bottom) / WORLD_H);
-  return { s, ox: (w - WORLD_W * s) / 2, oy: top + (h - top - bottom - WORLD_H * s) / 2, w, h };
+  return { s, ox: (w - WORLD_W * s) / 2, oy: top + (h - top - bottom - WORLD_H * s) / 2, w, h, bottom };
 }
 
 export function screenToWorld(cam, sx, sy) {
@@ -98,6 +98,24 @@ export function applyEvent(fx, ev) {
       break;
     case 'whirl':
       text(fx, ev.x, ev.y, 'ВОДОВОРОТ!', '#bfe6ff', 0.32, 1.2);
+      break;
+    case 'card': {
+      const c = CARDS[ev.id];
+      ring(fx, ev.x, ev.y, '#d23cff', 1.2, 0.4);
+      burst(fx, ev.x, ev.y, '#f0b8ff', 10, 3, 0.08, 0.5);
+      text(fx, ev.x, ev.y - 1.1, c.name.toUpperCase() + '!', '#f0b8ff', 0.3, 1.1);
+      break;
+    }
+    case 'nope':
+      text(fx, ev.x, ev.y - 1, 'МАЛО ЭЛИКСИРА', '#f0b8ff', 0.24, 0.8);
+      break;
+    case 'block':
+      ring(fx, ev.x, ev.y, '#aee6ff', 0.8, 0.35);
+      burst(fx, ev.x, ev.y, '#aee6ff', 8, 3, 0.07, 0.4);
+      text(fx, ev.x, ev.y - 0.5, 'БЛОК!', '#aee6ff', 0.28);
+      break;
+    case 'chest':
+      text(fx, BOAT.x + BOAT.w / 2, BOAT.y + 4, ev.title, '#ffe14d', 0.3, 1.8);
       break;
     case 'throw':
       burst(fx, ev.x, ev.y, '#d7f0ff', 4, 1.5, 0.06, 0.3);
@@ -408,6 +426,138 @@ function drawStorm(ctx, cam, view, time) {
   }
 }
 
+// ---------- Карты: башенки, щит, полоска карт ----------
+const EMOJI_FONT = 'system-ui, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+
+function drawTurret(ctx, t, time) {
+  const { x, y } = t;
+  ctx.fillStyle = 'rgba(0,0,0,0.3)';
+  ctx.fillRect(x - 0.28, y - 0.1, 0.62, 0.4);
+  ctx.fillStyle = '#7d858e';
+  ctx.fillRect(x - 0.3, y - 0.6, 0.6, 0.8);
+  ctx.fillStyle = '#959da6';
+  ctx.fillRect(x - 0.36, y - 0.72, 0.72, 0.2);
+  ctx.fillStyle = '#5d646c';
+  for (let i = 0; i < 3; i++) ctx.fillRect(x - 0.36 + i * 0.28, y - 0.82, 0.16, 0.12);
+  // Флажок
+  ctx.fillStyle = '#5a3a1c';
+  ctx.fillRect(x + 0.02, y - 1.25, 0.05, 0.45);
+  ctx.fillStyle = '#d23cff';
+  ctx.fillRect(x + 0.07, y - 1.25 + Math.sin(time * 6) * 0.02, 0.28, 0.16);
+  // Сколько ещё простоит
+  ctx.strokeStyle = 'rgba(210,60,255,0.8)';
+  ctx.lineWidth = 0.06;
+  ctx.beginPath(); ctx.arc(x, y - 0.2, 0.5, -Math.PI / 2, -Math.PI / 2 + (t.t / t.max) * Math.PI * 2); ctx.stroke();
+}
+
+function drawShield(ctx, view, time) {
+  if (!(view.shT > 0)) return;
+  if (view.shT < 1.5 && Math.sin(time * 20) < 0) return; // мигает перед исчезновением
+  const cx = BOAT.x + BOAT.w / 2, cy = BOAT.y + BOAT.h / 2 + 0.5;
+  ctx.fillStyle = `rgba(120,210,255,${0.12 + Math.sin(time * 4) * 0.04})`;
+  ctx.strokeStyle = 'rgba(170,230,255,0.8)';
+  ctx.lineWidth = 0.1;
+  ctx.beginPath(); ctx.ellipse(cx, cy, BOAT.w / 2 + 0.9, BOAT.h / 2 + 0.6, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+}
+
+// Где на экране лежат эликсир и карты (нужно и для отрисовки, и для попадания пальцем).
+export function cardLayout(cam) {
+  const W = cam.w, pad = 14, gap = 8;
+  const top = cam.h - cam.bottom;
+  const nextW = 42;
+  const cardH = Math.max(46, cam.bottom - 52);
+  const cardW = Math.min(76, (W - 2 * pad - nextW - gap * 4) / 4);
+  const total = cardW * 4 + gap * 4 + nextW;
+  const x0 = (W - total) / 2;
+  const cards = [];
+  for (let i = 0; i < 4; i++) cards.push({ x: x0 + i * (cardW + gap), y: top + 30, w: cardW, h: cardH });
+  return {
+    elixir: { x: x0 + 18, y: top + 10, w: total - 18, h: 13 }, // слева место под цифру
+    cards,
+    next: { x: x0 + 4 * (cardW + gap), y: top + 30 + cardH * 0.35, w: nextW, h: cardH * 0.65 },
+  };
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawCardFace(ctx, rect, id, lvl, el, pressed) {
+  const card = CARDS[id];
+  if (!card) return;
+  const ok = el >= card.cost;
+  const k = pressed ? 0.94 : 1;
+  const w = rect.w * k, h = rect.h * k;
+  const x = rect.x + (rect.w - w) / 2, y = rect.y + (rect.h - h) / 2;
+  roundRect(ctx, x, y, w, h, 6);
+  ctx.fillStyle = ok ? '#5b3a1e' : '#2e1f12';
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = ok ? '#ffe14d' : '#7a5230';
+  ctx.stroke();
+  // Иконка
+  ctx.globalAlpha = ok ? 1 : 0.45;
+  ctx.font = `${Math.round(Math.min(w, h) * 0.46)}px ${EMOJI_FONT}`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(card.icon, x + w / 2, y + h * 0.47);
+  ctx.textBaseline = 'alphabetic';
+  ctx.globalAlpha = 1;
+  // Пока копится эликсир — заливка снизу
+  if (!ok) {
+    ctx.fillStyle = 'rgba(210,60,255,0.25)';
+    const f = Math.min(1, el / card.cost);
+    ctx.fillRect(x + 2, y + h - 2 - (h - 4) * f, w - 4, (h - 4) * f);
+  }
+  // Цена — капля эликсира
+  ctx.fillStyle = '#d23cff';
+  ctx.beginPath(); ctx.arc(x + 11, y + 11, 10, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#1e1207'; ctx.lineWidth = 2; ctx.stroke();
+  outlined(ctx, String(card.cost), x + 11, y + 16, 11, '#ffffff');
+  // Уровень
+  outlined(ctx, '★'.repeat(lvl), x + w / 2, y + h - 6, 9, '#ffe14d');
+}
+
+function drawCardBar(ctx, cam, view, hud) {
+  if (!view.hand) return;
+  const L = cardLayout(cam);
+  const el = view.el || 0;
+  // Эликсир: 10 делений
+  const seg = (L.elixir.w - 9 * 3) / 10;
+  for (let i = 0; i < 10; i++) {
+    const sx = L.elixir.x + i * (seg + 3);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(sx - 1, L.elixir.y - 1, seg + 2, L.elixir.h + 2);
+    ctx.fillStyle = '#3a1d45';
+    ctx.fillRect(sx, L.elixir.y, seg, L.elixir.h);
+    const f = Math.max(0, Math.min(1, el - i));
+    ctx.fillStyle = f >= 1 ? '#d23cff' : '#9b2bc0';
+    ctx.fillRect(sx, L.elixir.y, seg * f, L.elixir.h);
+  }
+  outlined(ctx, String(Math.floor(el)), L.elixir.x - 10, L.elixir.y + 12, 11, '#f0b8ff');
+
+  view.hand.forEach(([id, lvl], i) => drawCardFace(ctx, L.cards[i], id, lvl, el, hud.pressed === i));
+  if (view.nx) {
+    const r = L.next;
+    roundRect(ctx, r.x, r.y, r.w, r.h, 5);
+    ctx.fillStyle = '#2e1f12'; ctx.fill();
+    ctx.globalAlpha = 0.7;
+    ctx.font = `${Math.round(r.w * 0.5)}px ${EMOJI_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(CARDS[view.nx].icon, r.x + r.w / 2, r.y + r.h / 2 + 2);
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 1;
+    outlined(ctx, 'ДАЛЕЕ', r.x + r.w / 2, r.y - 4, 7, '#e8d3b0');
+  }
+}
+
 function shade(hex, k) {
   const n = parseInt(hex.slice(1), 16);
   const f = (c) => Math.max(0, Math.min(255, Math.round(c * k)));
@@ -534,6 +684,14 @@ function drawEnemy(ctx, e, time) {
     ctx.fillRect(x - sz * 0.15 + ex, y + sz * 0.1 + ey, sz * 0.3, sz * 0.16);
   }
 
+  if (e.frozen) {
+    ctx.fillStyle = 'rgba(170,230,255,0.55)';
+    ctx.fillRect(x - sz / 2 - 0.06, y - sz / 2 - 0.06, sz + 0.12, sz + 0.12);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(x - 0.04, y - sz / 2 - 0.25, 0.08, 0.2);
+    ctx.fillRect(x - 0.1, y - sz / 2 - 0.19, 0.2, 0.08);
+  }
+
   if (e.hp < e.maxHp) {
     const w = 0.22, gap = 0.06, total = e.maxHp * w + (e.maxHp - 1) * gap;
     for (let i = 0; i < e.maxHp; i++) {
@@ -585,6 +743,21 @@ function drawShot(ctx, sh, age, time, myKey) {
       ctx.fillRect(bx - 0.16, by - 0.16, 0.32, 0.32);
       ctx.fillStyle = '#b3b3b3';
       ctx.fillRect(bx - 0.16, by - 0.16, 0.16, 0.12);
+    }
+    return;
+  }
+
+  if (sh.owner === 't') {
+    if (sh.kind === 'bomb') {
+      ctx.fillStyle = '#1b1b22';
+      ctx.beginPath(); ctx.arc(bx, by, 0.26, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#5a3a1c';
+      ctx.fillRect(bx + 0.05, by - 0.38, 0.06, 0.14);
+      ctx.fillStyle = Math.sin(time * 30) > 0 ? '#ffe14d' : '#ff9a3d';
+      ctx.fillRect(bx + 0.03, by - 0.46, 0.1, 0.1);
+    } else {
+      ctx.fillStyle = '#d23cff';
+      ctx.beginPath(); ctx.arc(bx, by, 0.1, 0, Math.PI * 2); ctx.fill();
     }
     return;
   }
@@ -706,7 +879,7 @@ function drawHud(ctx, cam, view, hud, joy) {
     const inside = gap < 0;
     const blinkS = (inside || gap < 5) && Math.sin(performance.now() / 110) > 0;
     const label = inside ? 'В ШТОРМЕ! ВЫЧЕРПЫВАЙТЕ!' : `ШТОРМ ЗА КОРМОЙ: ${Math.ceil(gap)}`;
-    outlined(ctx, label, W / 2, cam.oy + WORLD_H * cam.s - 8, Math.max(8, sz * 0.65), blinkS ? '#ffffff' : '#d39bff');
+    outlined(ctx, label, W / 2, Math.min(cam.oy + WORLD_H * cam.s, cam.h - cam.bottom) - 8, Math.max(8, sz * 0.65), blinkS ? '#ffffff' : '#d39bff');
   }
 
   if (view.ban) {
@@ -717,17 +890,20 @@ function drawHud(ctx, cam, view, hud, joy) {
   // Нижняя строка: комната и пинг
   if (hud.status) {
     ctx.globalAlpha = 0.75;
-    outlined(ctx, hud.status, W / 2, cam.h - 10, Math.max(8, sz * 0.6), '#d7f0ff');
+    outlined(ctx, hud.status, W / 2, cam.h - 5, Math.max(7, sz * 0.5), '#d7f0ff');
     ctx.globalAlpha = 1;
   }
 
   if (hud.hint > 0) {
     ctx.globalAlpha = Math.min(1, hud.hint);
-    outlined(ctx, '◀ БЕГ', W * 0.25, cam.h - 50, sz * 0.8, '#ffffff');
-    outlined(ctx, 'УДАР ▶', W * 0.75, cam.h - 50, sz * 0.8, '#ffffff');
-    outlined(ctx, 'удар: свайп — прицел, тап — авто', W / 2, cam.h - 32, Math.max(7, Math.min(sz * 0.55, W / 40)), '#d7f0ff');
+    const hy = cam.h - cam.bottom;
+    outlined(ctx, '◀ БЕГ', W * 0.25, hy - 34, sz * 0.8, '#ffffff');
+    outlined(ctx, 'УДАР ▶', W * 0.75, hy - 34, sz * 0.8, '#ffffff');
+    outlined(ctx, 'удар: свайп — прицел, тап — авто', W / 2, hy - 16, Math.max(7, Math.min(sz * 0.55, W / 40)), '#d7f0ff');
     ctx.globalAlpha = 1;
   }
+
+  drawCardBar(ctx, cam, view, hud);
 
   if (joy) {
     ctx.globalAlpha = 0.35;
@@ -765,6 +941,7 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   }
   drawBoat(ctx, view, time);
   if (view.ph !== 'menu') drawHelm(ctx, view, !!view.hm);
+  for (const t of view.T || []) drawTurret(ctx, { x: t[1], y: t[2], t: t[3], max: t[4] }, time);
   for (const d of view.D || []) {
     const p = smoothed('d' + d[0], d[1], d[2], dt);
     drawDebris(ctx, { id: d[0], x: p.x, y: p.y }, time);
@@ -774,7 +951,7 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
   for (const e of view.E) {
     const [id, kind, x, y, hp, maxHp, flash, throwT] = e;
     const p = smoothed('e' + id, x, y, dt);
-    drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age }, time);
+    drawEnemy(ctx, { id, kind, x: p.x, y: p.y, hp, maxHp, flash: flash + age, throwT: throwT + age, frozen: view.frT > 0 }, time);
   }
 
   for (const key of ['h', 'g']) {
@@ -805,6 +982,7 @@ export function render(ctx, cam, view, age, me, fx, time, dt, hud, joy) {
 
   if (me && me.atHelm) worldText(ctx, cam, '◀ РУЛЬ ▶   ▼ отойти', HELM.x, HELM.y - 0.85, 0.22, '#ffe14d');
 
+  drawShield(ctx, view, time);
   drawStorm(ctx, cam, view, time);
   drawFx(ctx, cam, fx);
   for (const [id, o] of smooth) if (!o.seen) smooth.delete(id);

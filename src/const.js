@@ -28,6 +28,21 @@ export const BOAT_SPEED = 1.6; // блоков в секунду при пуст
 export const STEER_SPEED = 4;
 export const ISLAND_DIST = 450; // ~5 минут пути
 export const STORM_START_GAP = 26;
+// Карты: общий эликсир и общая колода на команду.
+export const ELIXIR_MAX = 10;
+export const ELIXIR_RATE = 0.5; // в секунду
+export const START_ELIXIR = 5;
+export const HAND_SIZE = 4;
+export const MAX_CARD_LEVEL = 3;
+export const START_DECK = ['turret', 'bomb', 'repair', 'gull', 'shield'];
+export const CARDS = {
+  turret: { name: 'Башенка', icon: '🗼', cost: 3, desc: (l) => `Стреляет по зомби ${10 + 5 * l} с` },
+  shield: { name: 'Щит', icon: '🛡️', cost: 4, desc: (l) => `Купол над лодкой ${3 + 2 * l} с` },
+  bomb:   { name: 'Бомба', icon: '💣', cost: 5, desc: (l) => `Взрыв по толпе, урон ${2 + l}` },
+  freeze: { name: 'Заморозка', icon: '❄️', cost: 3, desc: (l) => `Зомби замирают на ${2 + 1.5 * l} с` },
+  repair: { name: 'Ремонт', icon: '🔧', cost: 4, desc: (l) => `Латает ${l + 1} дыры, −${10 * l}% воды` },
+  gull:   { name: 'Чайка', icon: '🐦', cost: 2, desc: (l) => `Приносит ${1 + l} доски` },
+};
 export const SMASH_CHARGE = 5; // пятое касание в розыгрыше — смэш
 
 export const TEAM_COLORS = { h: '#ff8a3d', g: '#3db4ff' };

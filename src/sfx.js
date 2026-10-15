@@ -46,6 +46,7 @@ export const sfx = {
       ac.resume?.();
     } catch {}
   },
+  nope() { tone(160, 0.12, 'square', 0.04, 0.8); },
   swing() { tone(260, 0.07, 'triangle', 0.025, 2.2); },
   event(ev) {
     switch (ev.type) {
@@ -60,6 +61,10 @@ export const sfx = {
       case 'patch': [330, 392, 494].forEach((f, i) => tone(f, 0.06, 'square', 0.04, 0, i * 0.06)); break;
       case 'loot': tone(784, 0.07, 'square', 0.04); tone(1046, 0.09, 'square', 0.04, 0, 0.07); break;
       case 'splash': noise(0.25, 0.05); break;
+      case 'card': tone(523, 0.08, 'square', 0.05); tone(784, 0.12, 'square', 0.05, 0, 0.07); break;
+      case 'block': tone(1200, 0.1, 'triangle', 0.05, 0.6); break;
+      case 'tshot': tone(900, 0.04, 'square', 0.015, 0.6); break;
+      case 'chest': [659, 784, 988, 1318].forEach((f, i) => tone(f, 0.1, 'square', 0.045, 0, i * 0.07)); break;
       case 'rock': tone(70, 0.35, 'sawtooth', 0.12, 0.5); noise(0.35, 0.1); vibrate(160); break;
       case 'bolt': noise(0.6, 0.14); tone(60, 0.5, 'square', 0.08, 0.4); vibrate(120); break;
       case 'whirl': tone(300, 0.6, 'sine', 0.05, 0.4); break;

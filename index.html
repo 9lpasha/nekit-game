@@ -59,6 +59,28 @@
     </div>
   </div>
 
+  <div id="chest" class="screen hidden">
+    <div class="panel">
+      <h2>СУНДУК!</h2>
+      <p class="hint">Выберите награду — выбирает любой из вас</p>
+      <div id="chest-options" class="chest-options"></div>
+      <p id="chest-timer" class="status"></p>
+    </div>
+  </div>
+
   <script type="module" src="src/main.js"></script>
+  <script>
+    // Сразу после обновления браузер может взять часть файлов из кэша и игра не запустится.
+    setTimeout(() => {
+      if (window.__booted) return;
+      const panel = document.querySelector('#menu .panel');
+      panel.innerHTML = '<h2>Игра обновилась</h2><p class="hint">Нажмите, чтобы загрузить новую версию</p>';
+      const b = document.createElement('button');
+      b.className = 'btn primary';
+      b.textContent = 'Обновить';
+      b.onclick = () => location.reload();
+      panel.appendChild(b);
+    }, 4000);
+  </script>
 </body>
 </html>

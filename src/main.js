@@ -1,6 +1,6 @@
-import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, clampToDeck, shotPos } from './const.js';
-import { createState, resetState, step, swing, snapshot, newPlayer } from './sim.js';
-import { computeCamera, screenToWorld, createFx, applyEvent, render } from './render.js';
+import { PLAYER_SPEED, SWING_CD, START_POS, REACH, WATER_SLOWDOWN, HELM, CARDS, clampToDeck, shotPos } from './const.js';
+import { createState, resetState, step, swing, snapshot, newPlayer, hostPlayCard, hostPickChest } from './sim.js';
+import { computeCamera, screenToWorld, createFx, applyEvent, render, cardLayout } from './render.js';
 import { createInput } from './input.js';
 import { connect } from './net.js';
 import { sfx } from './sfx.js';
@@ -27,6 +27,12 @@ function resize() {
 }
 addEventListener('resize', resize);
 resize();
+
+// Тап по карте внизу экрана не должен превращаться в джойстик или удар.
+input.setHitTest((x, y) => {
+  if (!G.role || !G.view?.hand) return -1;
+  return cardLayout(cam).cards.findIndex((r) => x >= r.x && x <= r.x + r.w && y >= r.y - 6 && y <= r.y + r.h + 6);
+});
 
 // iOS Safari игнорирует user-scalable=no, поэтому глушим зум жестами вручную.
 for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
@@ -121,8 +127,11 @@ function setupActions(room) {
     if (G.role !== 'host' || id !== G.peerId || !G.state.players.g) return;
     swing(G.state, 'g', d[0], d[1], 0.08); // небольшая фора на задержку сети
   });
-  a.cmd.on((d) => {
-    if (G.role === 'host' && d.c === 'restart' && G.state.phase === 'over') restart();
+  a.cmd.on((d, id) => {
+    if (G.role !== 'host' || id !== G.peerId) return;
+    if (d.c === 'restart' && G.state.phase !== 'play') restart();
+    else if (d.c === 'card') hostPlayCard(G.state, 'g', d.i, d.id);
+    else if (d.c === 'pick') hostPickChest(G.state, d.k, 'g');
   });
   return a;
 }
@@ -255,6 +264,55 @@ function gameOver(view) {
   showOverlay(title, text, win ? 'Плыть снова' : 'Ещё раз', again);
 }
 
+// ---------- Карты и сундук ----------
+function handleCards(view) {
+  for (const i of input.takeCards()) {
+    const card = view.hand?.[i];
+    if (!card || view.ph !== 'play' || view.ch) continue;
+    const [id] = card;
+    G.pressed = { i, until: performance.now() + 150 };
+    if (view.el < CARDS[id].cost) {
+      sfx.nope();
+      applyEvent(fx, { type: 'nope', x: G.me.x, y: G.me.y });
+      continue;
+    }
+    if (G.role === 'guest') G.actions.cmd.send({ c: 'card', i, id }, G.peerId);
+    else hostPlayCard(G.state, 'h', i, id);
+  }
+}
+
+let chestKey = '';
+function updateChest(view) {
+  const box = $('chest');
+  const ch = view && view.ph === 'play' && G.role ? view.ch : null;
+  if (!ch) {
+    if (!box.classList.contains('hidden')) box.classList.add('hidden');
+    chestKey = '';
+    return;
+  }
+  const key = ch.o.map((o) => o.title).join('|');
+  if (key !== chestKey) {
+    chestKey = key;
+    const list = $('chest-options');
+    list.innerHTML = '';
+    ch.o.forEach((o, k) => {
+      const b = document.createElement('button');
+      b.className = 'chest-opt';
+      b.innerHTML = `<span class="ico"></span><span><div class="t"></div><div class="d"></div></span>`;
+      b.querySelector('.ico').textContent = o.icon;
+      b.querySelector('.t').textContent = o.title;
+      b.querySelector('.d').textContent = o.desc;
+      b.onclick = () => {
+        if (G.role === 'guest') G.actions.cmd.send({ c: 'pick', k }, G.peerId);
+        else hostPickChest(G.state, k, 'h');
+      };
+      list.appendChild(b);
+    });
+    box.classList.remove('hidden');
+  }
+  $('chest-timer').textContent = `Автовыбор через ${Math.max(0, Math.ceil(ch.t))} с`;
+}
+
 function onEvent(ev) {
   applyEvent(fx, ev);
   sfx.event(ev);
@@ -380,6 +438,8 @@ function frame(now) {
     }
   }
 
+  if (view && G.role) handleCards(view);
+  updateChest(view);
   if (view && (view.ph === 'over' || view.ph === 'win') && !G.overShown && G.role) gameOver(view);
   if (G.role) G.hint = Math.max(0, G.hint - dt);
 
@@ -387,13 +447,14 @@ function frame(now) {
     status: G.role === 'solo' ? (G.code ? `Комната ${G.code} · ждём напарника` : 'Тренировка')
       : G.code ? `Комната ${G.code}${G.ping != null ? ' · ' + Math.round(G.ping) + ' мс' : ''}` : '',
     hint: G.hint,
+    pressed: G.pressed && performance.now() < G.pressed.until ? G.pressed.i : -1,
   };
   render(ctx, cam, view || idleView, age, G.role && view ? G.me : null, fx, time, dt, hud,
     G.role ? input.joystick() : null);
 }
 
 // Пустое море на фоне меню
-const idleView = { ph: 'menu', w: 1, sc: 0, wa: 0, pl: 0, H: [], PT: [], D: [], R: [], WP: [], bx: 0, di: 0, st: -30, isl: 450, P: { h: null, g: null }, E: [], S: [], ban: null };
+const idleView = { el: 0, hand: null, ph: 'menu', w: 1, sc: 0, wa: 0, pl: 0, H: [], PT: [], D: [], R: [], WP: [], bx: 0, di: 0, st: -30, isl: 450, P: { h: null, g: null }, E: [], S: [], ban: null };
 
 setInterval(async () => {
   if (!G.room || !G.peerId || NET_MODE === 'local') return;
@@ -436,3 +497,4 @@ else if (auto === 'solo') startGame('solo');
 
 document.fonts?.load('16px "Press Start 2P"').catch(() => {});
 requestAnimationFrame(frame);
+window.__booted = true;

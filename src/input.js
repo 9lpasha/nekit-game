@@ -7,12 +7,16 @@ const SWIPE_MIN = 22;
 export function createInput(canvas) {
   const keys = new Set();
   const swings = [];
+  const cards = []; // индексы карт, по которым тапнули
+  let hitTest = null; // (x, y) -> индекс карты или -1
   const touches = new Map(); // pointerId -> { zone, x0, y0, x, y, fired }
   let joy = null;
 
   canvas.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     canvas.setPointerCapture?.(e.pointerId);
+    const card = hitTest ? hitTest(e.clientX, e.clientY) : -1;
+    if (card >= 0) { cards.push(card); return; }
     if (e.pointerType === 'mouse') {
       swings.push({ type: 'point', sx: e.clientX, sy: e.clientY });
       return;
@@ -51,6 +55,8 @@ export function createInput(canvas) {
     if (e.target.tagName === 'INPUT') return;
     keys.add(e.code);
     if (e.code === 'Space' && !e.repeat) { swings.push({ type: 'auto' }); e.preventDefault(); }
+    const digit = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(e.code);
+    if (digit >= 0 && !e.repeat) cards.push(digit);
   });
   addEventListener('keyup', (e) => keys.delete(e.code));
   addEventListener('blur', () => keys.clear());
@@ -71,7 +77,9 @@ export function createInput(canvas) {
       return { x, y };
     },
     takeSwings() { return swings.splice(0); },
+    takeCards() { return cards.splice(0); },
+    setHitTest(fn) { hitTest = fn; },
     joystick() { return joy ? { x0: joy.x0, y0: joy.y0, x: joy.x, y: joy.y, r: JOY_R } : null; },
-    clear() { swings.length = 0; },
+    clear() { swings.length = 0; cards.length = 0; },
   };
 }

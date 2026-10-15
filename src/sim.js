@@ -5,6 +5,7 @@ import {
   pointInBoat, tileAt, shotPos, dist,
 } from './const.js';
 import { initVoyage, updateVoyage, snapshotVoyage } from './voyage.js';
+import { initCards, updateCards, playCard, openChest, pickChest, snapshotCards } from './cards.js';
 
 const rand = (a, b) => a + Math.random() * (b - a);
 const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
@@ -46,6 +47,7 @@ export function createState(solo, opts = {}) {
     bannerT: 1.5,
   };
   initVoyage(s, opts);
+  initCards(s);
   return s;
 }
 
@@ -186,6 +188,7 @@ function arrive(s, shot) {
       emit(s, 'boat', { x: shot.tx, y: shot.ty, drop: true });
       return;
     }
+    if (s.shieldT > 0) { emit(s, 'block', { x: shot.tx, y: shot.ty }); return; }
     const { col, row } = tileAt(shot.tx, shot.ty);
     const fresh = punchHole(s, col, row, 6 * shot.dmg);
     if (fresh && shot.dmg > 1) addWater(s, 8);
@@ -271,16 +274,44 @@ function updateCrew(s, dt) {
   }
 }
 
+function cardHooks(s) {
+  return {
+    emit: (type, data) => emit(s, type, data),
+    addWater: (n) => { s.water = Math.max(0, Math.min(100, s.water + n)); },
+    addPlanks: (n) => { s.planks += n; },
+    patchHole: () => {
+      const h = s.holes.splice(Math.floor(Math.random() * s.holes.length), 1)[0];
+      if (!h) return;
+      s.patches.push(h);
+      emit(s, 'patch', { x: BOAT.x + h.col + 0.5, y: BOAT.y + h.row + 0.5 });
+    },
+  };
+}
+
+export function hostPlayCard(s, key, i, id) { return playCard(s, key, i, id, cardHooks(s)); }
+export function hostPickChest(s, k, key) { pickChest(s, k, key, cardHooks(s)); }
+
 export function step(s, dt) {
   s.t += dt;
   if (s.bannerT > 0) s.bannerT -= dt;
   if (s.phase !== 'play') return;
 
+  // Пока открыт сундук — игра на паузе
+  if (s.chest) {
+    s.chest.t -= dt;
+    if (s.chest.t <= 0) pickChest(s, Math.floor(Math.random() * 3), null, cardHooks(s));
+    return;
+  }
+  updateCards(s, dt, cardHooks(s));
+
   updateDebris(s, dt);
   updateCrew(s, dt);
   updateVoyage(s, dt, {
     emit: (type, data) => emit(s, type, data),
-    punchHole: (col, row, water) => punchHole(s, col, row, water),
+    punchHole: (col, row, water) => {
+      if (s.shieldT > 0) { emit(s, 'block', { x: BOAT.x + col + 0.5, y: BOAT.y + row + 0.5 }); return false; }
+      return punchHole(s, col, row, water);
+    },
     addWater: (amount) => addWater(s, amount),
     banner: (text, t) => { s.banner = text; s.bannerT = t; },
   });
@@ -304,8 +335,9 @@ export function step(s, dt) {
     s.score += bonus;
     s.banner = 'Волна отбита!';
     s.bannerT = 2;
-    s.breakTimer = 3;
+    s.breakTimer = 2.5;
     emit(s, 'clear', { bonus });
+    openChest(s);
   }
 
   // Враги
@@ -314,6 +346,7 @@ export function step(s, dt) {
     const k = KINDS[e.kind];
     e.flash += dt;
     e.throwT += dt;
+    if (s.freezeT > 0) continue; // заморожены: не плывут и не бросают
     const d = dist(e.x, e.y, e.ax, e.ay);
     if (d > 0.05) {
       const v = Math.min(d, k.speed * dt);
@@ -394,6 +427,7 @@ export function snapshot(s) {
     D: s.debris.map((d) => [d.id, d.x, d.y]),
     rs: s.resets,
     ...snapshotVoyage(s),
+    ...snapshotCards(s),
     ban: s.bannerT > 0 ? s.banner : null,
     P: { h: pl('h'), g: pl('g') },
     E: s.enemies.map((e) => [e.id, e.kind, e.x, e.y, e.hp, e.maxHp, e.flash, e.throwT]),
